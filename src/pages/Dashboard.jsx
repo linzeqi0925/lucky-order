@@ -208,14 +208,33 @@ function DataImport({ onImported }) {
 /* ========== 数据看板 ========== */
 function DashboardView({ orders, loading, onRefresh }) {
   const [activeTab, setActiveTab] = useState('overview')
+  // 全局筛选
+  const [dateRange, setDateRange] = useState({ start: '', end: '' })
+  const [filterCategory, setFilterCategory] = useState('')
+  const [filterSupplier, setFilterSupplier] = useState('')
 
-  const total = orders.length
-  const totalQty = orders.reduce((s, o) => s + o.quantity, 0)
-  const totalAmt = orders.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0)
-  const urgentCount = orders.filter(o => o.is_urgent).length
+  // 所有可用的品类和供应商
+  const allCats = [...new Set(orders.map(o => o.product_category).filter(Boolean))]
+  const allSups = [...new Set(orders.map(o => o.supplier).filter(Boolean))]
+
+  // 筛选后的数据
+  const filtered = orders.filter(o => {
+    if (filterCategory && o.product_category !== filterCategory) return false
+    if (filterSupplier && o.supplier !== filterSupplier) return false
+    if (dateRange.start && o.order_date < dateRange.start) return false
+    if (dateRange.end && o.order_date > dateRange.end) return false
+    return true
+  })
+
+  const hasFilter = filterCategory || filterSupplier || dateRange.start || dateRange.end
+
+  const total = filtered.length
+  const totalQty = filtered.reduce((s, o) => s + o.quantity, 0)
+  const totalAmt = filtered.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0)
+  const urgentCount = filtered.filter(o => o.is_urgent).length
 
   const catMap = {}
-  orders.forEach(o => {
+  filtered.forEach(o => {
     const cat = o.product_category || '未分类'
     if (!catMap[cat]) catMap[cat] = { count: 0, qty: 0, amount: 0 }
     catMap[cat].count++
@@ -226,28 +245,58 @@ function DashboardView({ orders, loading, onRefresh }) {
 
   const statusMap = {}
   const statusLabel = { pending: '待处理', processing: '生产中', shipped: '已发货', completed: '已完成', cancelled: '已取消' }
-  orders.forEach(o => { statusMap[o.order_status] = (statusMap[o.order_status] || 0) + 1 })
+  filtered.forEach(o => { statusMap[o.order_status] = (statusMap[o.order_status] || 0) + 1 })
 
   const supMap = {}
-  orders.forEach(o => { if (o.supplier) supMap[o.supplier] = (supMap[o.supplier] || 0) + o.qty })
+  filtered.forEach(o => { if (o.supplier) supMap[o.supplier] = (supMap[o.supplier] || 0) + o.quantity })
   const supSorted = Object.entries(supMap).sort((a, b) => b[1] - a[1])
 
   const now = new Date()
   const dayMap = {}
   for (let i = 6; i >= 0; i--) { const d = new Date(now); d.setDate(d.getDate() - i); dayMap[d.toISOString().split('T')[0]] = 0 }
-  orders.forEach(o => { if (dayMap[o.order_date] !== undefined) dayMap[o.order_date]++ })
+  filtered.forEach(o => { if (dayMap[o.order_date] !== undefined) dayMap[o.order_date]++ })
   const dayEntries = Object.entries(dayMap)
 
   const monthMap = {}
-  orders.forEach(o => {
+  filtered.forEach(o => {
     if (!o.order_date) return
     const m = o.order_date.slice(0, 7)
     monthMap[m] = (monthMap[m] || 0) + o.quantity
   })
 
+  const clearFilters = () => { setDateRange({ start: '', end: '' }); setFilterCategory(''); setFilterSupplier('') }
+
   return (
     <div className="dashboard-view">
       <HolidayBanner />
+
+      {/* ===== 全局筛选器 ===== */}
+      <div className="filter-bar">
+        <div className="filter-group">
+          <label>时间</label>
+          <input type="date" value={dateRange.start} onChange={e => setDateRange(p => ({...p, start: e.target.value}))} className="filter-input" />
+          <span className="filter-sep">—</span>
+          <input type="date" value={dateRange.end} onChange={e => setDateRange(p => ({...p, end: e.target.value}))} className="filter-input" />
+        </div>
+        <div className="filter-group">
+          <label>品类</label>
+          <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} className="filter-input">
+            <option value="">全部</option>
+            {allCats.map(c => <option key={c}>{c}</option>)}
+          </select>
+        </div>
+        <div className="filter-group">
+          <label>供应商</label>
+          <select value={filterSupplier} onChange={e => setFilterSupplier(e.target.value)} className="filter-input">
+            <option value="">全部</option>
+            {allSups.map(s => <option key={s}>{s}</option>)}
+          </select>
+        </div>
+        {hasFilter && (
+          <button className="btn-clear" onClick={clearFilters}>✕ 清除筛选</button>
+        )}
+        <div className="filter-count">筛选结果：<strong>{total}</strong> 单</div>
+      </div>
 
       {/* KPI 卡片 */}
       <div className="kpi-row">
@@ -336,13 +385,13 @@ function DashboardView({ orders, loading, onRefresh }) {
 
       {activeTab === 'table' && (
         <div className="tab-content">
-          <OrderTable orders={orders} loading={loading} onRefresh={onRefresh} />
+          <OrderTable orders={filtered} loading={loading} onRefresh={onRefresh} />
         </div>
       )}
 
       {activeTab === 'ai' && (
         <div className="tab-content">
-          <AIInsight orders={orders} />
+          <AIInsight orders={filtered} />
         </div>
       )}
     </div>
