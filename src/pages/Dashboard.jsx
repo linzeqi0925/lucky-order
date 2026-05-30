@@ -346,6 +346,7 @@ function DashboardView({ orders, loading, onRefresh }) {
         <button className={`tab-pill ${activeTab === 'trend' ? 'active' : ''}`} onClick={() => setActiveTab('trend')}>趋势分析</button>
         <button className={`tab-pill ${activeTab === 'supplier' ? 'active' : ''}`} onClick={() => setActiveTab('supplier')}>供应商分析</button>
         <button className={`tab-pill ${activeTab === 'table' ? 'active' : ''}`} onClick={() => setActiveTab('table')}>数据明细</button>
+        <button className={`tab-pill ${activeTab === 'newproduct' ? 'active' : ''}`} onClick={() => setActiveTab('newproduct')}>✨ 新品追踪</button>
         <button className={`tab-pill ${activeTab === 'ai' ? 'active' : ''}`} onClick={() => setActiveTab('ai')}>AI 洞察</button>
       </div>
 
@@ -421,9 +422,136 @@ function DashboardView({ orders, loading, onRefresh }) {
         </div>
       )}
 
+      {activeTab === 'newproduct' && (
+        <NewProductTracker orders={filtered} allOrders={orders} />
+      )}
+
       {activeTab === 'ai' && (
         <div className="tab-content">
           <AIInsight orders={filtered} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ========== 新品追踪 ========== */
+function NewProductTracker({ orders, allOrders }) {
+  const STORAGE_KEY = 'lucky_order_new_products'
+  const [newProducts, setNewProducts] = useState([])
+  const [name, setName] = useState('')
+  const [launchDate, setLaunchDate] = useState('')
+  const [editing, setEditing] = useState(null)
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
+      setNewProducts(saved)
+    } catch {}
+  }, [])
+
+  const save = (items) => {
+    setNewProducts(items)
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(items))
+  }
+
+  const handleAdd = () => {
+    if (!name.trim() || !launchDate) return
+    const item = { id: Date.now(), name: name.trim(), launchDate, addedAt: new Date().toISOString() }
+    save([...newProducts, item])
+    setName('')
+    setLaunchDate('')
+  }
+
+  const handleDelete = (id) => save(newProducts.filter(p => p.id !== id))
+
+  // 计算每个新品的出库数据
+  const getProductData = (prod) => {
+    // 从所有订单中匹配产品名包含新品名称的记录
+    const matched = allOrders.filter(o => {
+      const pn = (o.product_name || '').toLowerCase()
+      return pn.includes(prod.name.toLowerCase())
+    })
+    // 上线后的数据
+    const afterLaunch = matched.filter(o => o.order_date >= prod.launchDate)
+    // 上线前的数据（如果有的话，说明不是新品）
+    const beforeLaunch = matched.filter(o => o.order_date < prod.launchDate)
+    const totalQty = afterLaunch.reduce((s, o) => s + o.quantity, 0)
+    const totalAmt = afterLaunch.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0)
+    // 每日趋势
+    const dayMap = {}
+    afterLaunch.sort((a, b) => a.order_date.localeCompare(b.order_date)).forEach(o => {
+      dayMap[o.order_date] = (dayMap[o.order_date] || 0) + o.quantity
+    })
+    return {
+      totalQty,
+      totalAmt,
+      orderCount: afterLaunch.length,
+      daysOnMarket: Object.keys(dayMap).length,
+      dailyAvg: Object.keys(dayMap).length > 0 ? (totalQty / Object.keys(dayMap).length).toFixed(1) : 0,
+      trend: Object.entries(dayMap).sort((a, b) => a[0].localeCompare(b[0])),
+      hasBeforeData: beforeLaunch.length > 0
+    }
+  }
+
+  return (
+    <div className="tab-content">
+      <div className="tracker-header">
+        <div>
+          <h3 className="tracker-title">✨ 新品追踪</h3>
+          <p className="tracker-desc">添加新品并设置上线日期，系统自动跟踪出库表现</p>
+        </div>
+      </div>
+
+      {/* 添加新品 */}
+      <div className="tracker-add">
+        <input placeholder="新品名称（如：光敏印章-新款）" value={name} onChange={e => setName(e.target.value)} className="filter-input" style={{flex:2}} />
+        <input type="date" value={launchDate} onChange={e => setLaunchDate(e.target.value)} className="filter-input" />
+        <button className="btn-primary-sm" onClick={handleAdd} disabled={!name.trim() || !launchDate}>➕ 添加新品</button>
+      </div>
+
+      {newProducts.length === 0 ? (
+        <div className="empty-state">📭 还没有新品，在上方添加并设置上线日期</div>
+      ) : (
+        <div className="tracker-list">
+          {newProducts.map(prod => {
+            const data = getProductData(prod)
+            return (
+              <div key={prod.id} className="tracker-card">
+                <div className="tracker-top">
+                  <div className="tracker-info">
+                    <h4>{prod.name}</h4>
+                    <span className="tracker-meta">
+                      🚀 上线 {prod.launchDate} · 📅 已上架 {data.daysOnMarket} 天
+                      {data.hasBeforeData && <span className="tracker-warn"> ⚠️ 上线前已有数据</span>}
+                    </span>
+                  </div>
+                  <button className="tracker-del" onClick={() => handleDelete(prod.id)} title="移除">✕</button>
+                </div>
+                <div className="tracker-stats">
+                  <div className="ts-item"><span className="ts-num">{data.orderCount}</span><span className="ts-label">订单数</span></div>
+                  <div className="ts-item"><span className="ts-num">{data.totalQty}</span><span className="ts-label">出库量</span></div>
+                  <div className="ts-item"><span className="ts-num">¥{data.totalAmt.toFixed(0)}</span><span className="ts-label">销售额</span></div>
+                  <div className="ts-item"><span className="ts-num">{data.dailyAvg}</span><span className="ts-label">日均出库</span></div>
+                </div>
+                {data.trend.length > 0 && (
+                  <div className="tracker-chart" style={{height:120}}>
+                    <ReactECharts option={{
+                      tooltip: { trigger: 'axis' },
+                      grid: { left: 30, right: 10, top: 10, bottom: 20 },
+                      xAxis: { type: 'category', data: data.trend.map(([d]) => d.slice(5)), axisLabel: { fontSize: 10 } },
+                      yAxis: { type: 'value', splitLine: { lineStyle: { color: '#f1f5f9' } } },
+                      series: [{ type: 'line', data: data.trend.map(([, v]) => v), smooth: true, symbol: 'circle', symbolSize: 6,
+                        lineStyle: { color: '#8b5cf6', width: 2 },
+                        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(139,92,246,0.3)' }, { offset: 1, color: 'rgba(139,92,246,0.02)' }] } },
+                        itemStyle: { color: '#8b5cf6' }
+                      }]
+                    }} style={{height:'100%'}} opts={{renderer:'svg'}} />
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
     </div>

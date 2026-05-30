@@ -236,3 +236,22 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica
 .rule-del:hover { background:#fee2e2; color:#dc2626 }
 .rules-footer { display:flex; align-items:center; justify-content:space-between }
 .rules-count { font-size:12px; color:var(--text3) }
+
+/* ===== 新品追踪 ===== */
+.tracker-header { margin-bottom:4px }
+.tracker-title { font-size:18px; font-weight:700; margin-bottom:2px }
+.tracker-desc { font-size:13px; color:var(--text2); margin-bottom:12px }
+.tracker-add { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap }
+.tracker-list { display:flex; flex-direction:column; gap:14px }
+.tracker-card { background:var(--card); border-radius:var(--radius); padding:18px; box-shadow:var(--shadow); border:1px solid var(--border) }
+.tracker-top { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:12px }
+.tracker-info h4 { font-size:15px; font-weight:600; margin-bottom:2px }
+.tracker-meta { font-size:12px; color:var(--text3) }
+.tracker-warn { color:#f59e0b; font-weight:500 }
+.tracker-del { border:none; background:none; color:var(--text3); cursor:pointer; padding:4px 8px; border-radius:6px; font-size:14px }
+.tracker-del:hover { background:#fef2f2; color:#dc2626 }
+.tracker-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:12px }
+.ts-item { text-align:center; background:#f8fafc; border-radius:8px; padding:10px }
+.ts-num { display:block; font-size:16px; font-weight:700; color:var(--text) }
+.ts-label { display:block; font-size:11px; color:var(--text3); margin-top:2px }
+.tracker-chart { background:#fafbfc; border-radius:8px; padding:8px; border:1px solid #f1f5f9 }
