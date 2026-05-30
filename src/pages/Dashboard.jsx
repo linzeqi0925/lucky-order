@@ -2,15 +2,20 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { analyzeOrders } from '../lib/analyzer'
 import { getUpcomingHolidays, formatDate, isImportant } from '../lib/holidays'
+import { loadRules, saveRules, classifyBulk } from '../lib/classifier'
 import * as XLSX from 'xlsx'
 import ReactECharts from 'echarts-for-react'
+import html2canvas from 'html2canvas'
 
 export default function Dashboard() {
   const [user, setUser] = useState(null)
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [showImport, setShowImport] = useState(false)
-  const [activeTab, setActiveTab] = useState('overview')
+  const [showShare, setShowShare] = useState(false)
+  const [showRules, setShowRules] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const dashboardRef = useRef(null)
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUser(data.user))
@@ -29,6 +34,23 @@ export default function Dashboard() {
       .order('created_at', { ascending: false })
     if (data) setOrders(data)
     setLoading(false)
+  }
+
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      const el = dashboardRef.current
+      if (!el) return
+      const canvas = await html2canvas(el, { backgroundColor: '#f0f2f5', scale: 2, useCORS: true })
+      const link = document.createElement('a')
+      link.download = `出库分析报告_${new Date().toISOString().slice(0, 10)}.png`
+      link.href = canvas.toDataURL('image/png')
+      link.click()
+    } catch (err) {
+      alert('导出失败：' + err.message)
+    } finally {
+      setExporting(false)
+    }
   }
 
   const handleLogout = async () => {
@@ -58,19 +80,29 @@ export default function Dashboard() {
           </button>
         </div>
         <div className="topbar-right">
+          <button className="btn-outline-sm" onClick={() => setShowRules(true)} title="智能分类规则">🏷️ 规则</button>
+          <button className="btn-outline-sm" onClick={() => setShowShare(true)} title="分享给同事" disabled={orders.length === 0}>🔗 分享</button>
+          <button className="btn-outline-sm" onClick={handleExport} disabled={exporting || orders.length === 0}>
+            {exporting ? '⏳' : '📷'} 导出
+          </button>
           <div className="user-avatar">{user.email?.charAt(0).toUpperCase()}</div>
           <span className="user-email">{user.email?.split('@')[0]}</span>
           <button className="btn-outline-sm" onClick={handleLogout}>退出</button>
         </div>
       </header>
 
-      <div className="dashboard-body">
+      <div className="dashboard-body" ref={dashboardRef}>
         {showImport ? (
           <DataImport onImported={() => { loadOrders(); setShowImport(false) }} />
         ) : (
           <DashboardView orders={orders} loading={loading} onRefresh={loadOrders} />
         )}
       </div>
+
+      {/* 分享弹窗 */}
+      {showShare && <ShareModal orders={orders} user={user} onClose={() => setShowShare(false)} />}
+      {/* 规则弹窗 */}
+      {showRules && <RulesModal onClose={() => setShowRules(false)} />}
     </div>
   )
 }
@@ -535,6 +567,100 @@ function OrderTable({ orders, loading, onRefresh }) {
             ))}</tbody>
           </table>
         )}
+      </div>
+    </div>
+  )
+}
+
+/* ========== 分享弹窗 ========== */
+function ShareModal({ orders, user, onClose }) {
+  const [copied, setCopied] = useState(false)
+  const shareUrl = `${window.location.origin}?shared=${user.id}`
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(shareUrl).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-card" onClick={e => e.stopPropagation()}>
+        <button className="modal-close" onClick={onClose}>✕</button>
+        <h3>🔗 分享数据给同事</h3>
+        <p className="modal-desc">把链接发给同事，对方打开就能看到你的数据</p>
+        <div className="share-url-box">
+          <input readOnly value={shareUrl} className="share-input" onClick={e => e.target.select()} />
+          <button className="btn-primary-sm" onClick={handleCopy}>{copied ? '✅ 已复制' : '📋 复制链接'}</button>
+        </div>
+        <div className="share-info">
+          <span>📊 共 {orders.length} 条订单数据</span>
+          <span>👤 分享者：{user.email}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ========== 智能规则弹窗 ========== */
+function RulesModal({ onClose }) {
+  const [rules, setRules] = useState([])
+  const [newKeyword, setNewKeyword] = useState('')
+  const [newCategory, setNewCategory] = useState('')
+
+  useEffect(() => { setRules(loadRules()) }, [])
+
+  const handleAdd = () => {
+    if (!newKeyword.trim() || !newCategory.trim()) return
+    const updated = [...rules, { keyword: newKeyword.trim(), category: newCategory.trim() }]
+    saveRules(updated)
+    setRules(updated)
+    setNewKeyword('')
+    setNewCategory('')
+  }
+
+  const handleDelete = (idx) => {
+    const updated = rules.filter((_, i) => i !== idx)
+    saveRules(updated)
+    setRules(updated)
+  }
+
+  const handleReset = () => {
+    saveRules(loadRules())
+    setRules(loadRules())
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-card modal-wide" onClick={e => e.stopPropagation()}>
+        <button className="modal-close" onClick={onClose}>✕</button>
+        <h3>🏷️ 智能分类规则</h3>
+        <p className="modal-desc">根据产品名称中的关键词自动分配到品类，导入时生效</p>
+
+        <div className="rules-add">
+          <input placeholder="关键词（如：光敏）" value={newKeyword} onChange={e => setNewKeyword(e.target.value)}
+            className="filter-input" style={{flex:1}} />
+          <input placeholder="分类到（如：光敏）" value={newCategory} onChange={e => setNewCategory(e.target.value)} 
+            className="filter-input" style={{flex:1}} />
+          <button className="btn-primary-sm" onClick={handleAdd}>➕ 添加</button>
+        </div>
+
+        <div className="rules-list">
+          {rules.map((r, i) => (
+            <div key={i} className="rule-item">
+              <span className="rule-keyword">{r.keyword}</span>
+              <span className="rule-arrow">→</span>
+              <span className="rule-cat">{r.category}</span>
+              <button className="rule-del" onClick={() => handleDelete(i)}>✕</button>
+            </div>
+          ))}
+        </div>
+
+        <div className="rules-footer">
+          <span className="rules-count">共 {rules.length} 条规则</span>
+          <button className="btn-outline-sm" onClick={handleReset}>🔄 恢复默认</button>
+        </div>
       </div>
     </div>
   )

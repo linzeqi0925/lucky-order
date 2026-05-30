@@ -205,3 +205,34 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica
 .btn-clear:hover { background:#fee2e2 }
 .filter-count { font-size:13px; color:var(--text2); margin-left:auto; white-space:nowrap }
 .filter-count strong { color:var(--primary); font-size:15px }
+
+/* ===== 弹窗 ===== */
+.modal-overlay {
+  position:fixed; inset:0; background:rgba(0,0,0,.4); backdrop-filter:blur(4px);
+  display:flex; align-items:center; justify-content:center; z-index:200; padding:20px
+}
+.modal-card {
+  background:var(--card); border-radius:16px; padding:28px; width:100%; max-width:480px;
+  box-shadow:0 20px 60px rgba(0,0,0,.2); position:relative; animation:modalIn .2s ease
+}
+.modal-wide { max-width:560px }
+@keyframes modalIn { from{opacity:0;transform:scale(.95)translateY(10px)} to{opacity:1;transform:scale(1)translateY(0)} }
+.modal-close { position:absolute; top:12px; right:14px; border:none; background:none; font-size:18px; cursor:pointer; color:var(--text3); padding:4px 8px; border-radius:6px }
+.modal-close:hover { background:#f1f5f9; color:var(--text) }
+.modal-card h3 { font-size:18px; font-weight:700; margin-bottom:4px }
+.modal-desc { font-size:13px; color:var(--text2); margin-bottom:20px }
+.share-url-box { display:flex; gap:8px; margin-bottom:16px }
+.share-input { flex:1; padding:10px 14px; border:1px solid var(--border); border-radius:8px; font-size:13px; background:#f8fafc; color:var(--text); cursor:text }
+.share-info { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--text3) }
+
+/* ===== 规则管理 ===== */
+.rules-add { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap }
+.rules-list { max-height:300px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; margin-bottom:12px }
+.rule-item { display:flex; align-items:center; gap:8px; padding:8px 12px; background:#f8fafc; border-radius:8px; font-size:13px }
+.rule-keyword { font-weight:600; color:var(--primary); padding:2px 8px; background:var(--primary-bg); border-radius:4px }
+.rule-arrow { color:var(--text3) }
+.rule-cat { color:var(--text); flex:1 }
+.rule-del { border:none; background:none; color:var(--text3); cursor:pointer; padding:2px 6px; border-radius:4px; font-size:12px }
+.rule-del:hover { background:#fee2e2; color:#dc2626 }
+.rules-footer { display:flex; align-items:center; justify-content:space-between }
+.rules-count { font-size:12px; color:var(--text3) }
