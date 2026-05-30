@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { analyzeOrders } from '../lib/analyzer'
 import { getUpcomingHolidays, formatDate, isImportant } from '../lib/holidays'
-import { loadRules, saveRules, classifyBulk } from '../lib/classifier'
+import { loadRules, saveRules, classifyProduct } from '../lib/classifier'
 import * as XLSX from 'xlsx'
 import ReactECharts from 'echarts-for-react'
 import html2canvas from 'html2canvas'
@@ -127,17 +127,41 @@ function DataImport({ onImported }) {
 
       const sample = rows[0]
       const keys = Object.keys(sample)
-      const fieldMap = {
-        order_no: findKey(keys, ['订单号','订单编号','order_no','OrderNo','orderno']),
-        product_category: findKey(keys, ['品类','产品大类','分类','产品类别','category','Category']),
-        product_name: findKey(keys, ['产品名称','产品名','商品名称','product_name','ProductName']),
-        quantity: findKey(keys, ['数量','出库数量','出库量','qty','Qty','quantity','Quantity']),
-        total_amount: findKey(keys, ['金额','总金额','销售额','amount','Amount','total_amount']),
-        order_date: findKey(keys, ['日期','下单日期','出库日期','date','Date','order_date']),
-        order_status: findKey(keys, ['状态','订单状态','status','Status']),
-        supplier: findKey(keys, ['供应商','supplier','Supplier']),
+
+      // 检测是否为马帮导出格式（通过关键字段识别）
+      const isMabang = keys.some(k => ['订单编号','SKU','店铺名','订单商品名称','平台SKU数量','发货时间'].includes(k))
+
+      let fieldMap
+      if (isMabang) {
+        // 马帮格式专用映射
+        fieldMap = {
+          order_no: '订单编号',
+          store_name: '店铺名',
+          product_name: '订单商品名称',
+          quantity: '平台SKU数量',
+          order_date: '发货时间',
+          country: '国家',
+          province: '所属地区（省/州）',
+          city: '所属城市',
+          sku: 'SKU',
+          is_mabang: true
+        }
+      } else {
+        // 通用格式映射
+        fieldMap = {
+          order_no: findKey(keys, ['订单号','订单编号','order_no','OrderNo','orderno']),
+          product_category: findKey(keys, ['品类','产品大类','分类','产品类别','category','Category']),
+          product_name: findKey(keys, ['产品名称','产品名','商品名称','product_name','ProductName']),
+          quantity: findKey(keys, ['数量','出库数量','出库量','qty','Qty','quantity','Quantity']),
+          total_amount: findKey(keys, ['金额','总金额','销售额','amount','Amount','total_amount']),
+          order_date: findKey(keys, ['日期','下单日期','出库日期','date','Date','order_date']),
+          order_status: findKey(keys, ['状态','订单状态','status','Status']),
+          supplier: findKey(keys, ['供应商','supplier','Supplier']),
+          store_name: findKey(keys, ['店铺名','店铺','store','Store','store_name']),
+          country: findKey(keys, ['国家','country','Country']),
+        }
       }
-      setPreview({ rows: rows.slice(0, 5), total: rows.length, fieldMap, allRows: rows, keys })
+      setPreview({ rows: rows.slice(0, 5), total: rows.length, fieldMap, allRows: rows, keys, isMabang })
     } catch (err) {
       setError(err.message)
     } finally {
@@ -152,19 +176,69 @@ function DataImport({ onImported }) {
     try {
       const user = (await supabase.auth.getUser()).data.user
       const fm = preview.fieldMap
+      const isMabang = fm.is_mabang
       let imported = 0
-      for (let i = 0; i < preview.allRows.length; i += 100) {
-        const batch = preview.allRows.slice(i, i + 100).map(row => ({
-          user_id: user.id,
-          order_no: String(row[fm.order_no] || '') || `IMP-${Date.now()}-${i}`,
-          product_category: String(row[fm.product_category] || '未分类'),
-          product_name: String(row[fm.product_name] || ''),
-          quantity: parseInt(row[fm.quantity]) || 1,
-          total_amount: fm.total_amount ? parseFloat(row[fm.total_amount]) || 0 : 0,
-          order_date: fm.order_date ? formatExcelDate(row[fm.order_date]) : new Date().toISOString().split('T')[0],
-          order_status: fm.order_status ? mapStatus(String(row[fm.order_status])) : 'completed',
-          supplier: fm.supplier ? String(row[fm.supplier] || '') : '',
-        }))
+
+      // 马帮格式：需要按订单号聚合（一个订单多行SKU）
+      let rowsToImport = preview.allRows
+      if (isMabang) {
+        // 按订单号聚合，把同订单的商品名和数量合并
+        const orderMap = {}
+        preview.allRows.forEach(row => {
+          const oid = String(row['订单编号'] || '')
+          if (!oid) return
+          if (!orderMap[oid]) {
+            orderMap[oid] = {
+              order_no: oid,
+              store_name: String(row['店铺名'] || ''),
+              country: String(row['国家'] || ''),
+              province: String(row['所属地区（省/州）'] || ''),
+              city: String(row['所属城市'] || ''),
+              order_date: formatExcelDate(row['发货时间']),
+              skus: [],
+              totalQty: 0
+            }
+          }
+          const qty = parseInt(row['平台SKU数量']) || 1
+          orderMap[oid].skus.push({
+            name: String(row['订单商品名称'] || ''),
+            sku: String(row['SKU'] || ''),
+            qty
+          })
+          orderMap[oid].totalQty += qty
+        })
+        // 转为导入行
+        rowsToImport = Object.values(orderMap).map(order => {
+          // 用智能分类从商品名推断品类
+          const topSku = order.skus.sort((a, b) => b.qty - a.qty)[0]
+          return {
+            ...order,
+            product_name: order.skus.map(s => `${s.name}(${s.sku})`).join('; '),
+            product_category: classifyProduct(topSku.name),
+            quantity: order.totalQty,
+            total_amount: 0,
+          }
+        })
+      }
+
+      for (let i = 0; i < rowsToImport.length; i += 100) {
+        const batch = rowsToImport.slice(i, i + 100).map(row => {
+          const storeInfo = row.store_name ? `[${row.store_name}]` : ''
+          const countryInfo = row.country ? `[国家:${row.country}]` : ''
+          const provInfo = row.province ? `[州:${row.province}]` : ''
+          const remark = [storeInfo, countryInfo, provInfo].filter(Boolean).join(' ')
+          return {
+            user_id: user.id,
+            order_no: row.order_no || `IMP-${Date.now()}-${i}`,
+            product_category: row.product_category || (row.product_name ? classifyProduct(row.product_name) : '未分类'),
+            product_name: row.product_name || '',
+            quantity: row.quantity || 1,
+            total_amount: row.total_amount ? parseFloat(row.total_amount) : 0,
+            order_date: row.order_date || new Date().toISOString().split('T')[0],
+            order_status: 'completed',
+            remark,
+          }
+        })
         const { error: err } = await supabase.from('orders').insert(batch)
         if (err) throw err
         imported += batch.length
@@ -186,7 +260,7 @@ function DataImport({ onImported }) {
       <div className="import-card">
         <div className="import-header">
           <h3>📥 导入出库数据</h3>
-          <p>拖拽或选择 Excel 文件，系统自动识别字段</p>
+          <p>支持马帮ERP原始导出文件，自动识别字段并聚合；也支持通用 Excel / CSV</p>
         </div>
         {!preview ? (
           <div className={`dropzone ${dragOver ? 'dropzone-active' : ''}`}
@@ -207,7 +281,11 @@ function DataImport({ onImported }) {
         ) : (
           <div className="preview-area">
             <div className="preview-header">
-              <span className="preview-count">📄 识别 <strong>{preview.total}</strong> 条数据</span>
+              <span className="preview-count">
+                {preview.isMabang ? '🚚 ' : '📄 '}
+                识别 <strong>{preview.total}</strong> 条记录
+                {preview.isMabang && <span className="mabang-badge">马帮格式</span>}
+              </span>
               <div className="preview-actions">
                 <button className="btn-ghost" onClick={() => setPreview(null)}>取消</button>
                 <button className="btn-primary-sm" onClick={handleImport} disabled={parsing}>
@@ -216,9 +294,21 @@ function DataImport({ onImported }) {
               </div>
             </div>
             <div className="field-mapping-bar">
-              {Object.entries(preview.fieldMap).filter(([_, v]) => v).map(([field, col]) => (
-                <span key={field} className="mapping-chip"><span className="chip-field">{field}</span> ← {col}</span>
-              ))}
+              {preview.isMabang ? (
+                <>
+                  <span className="mapping-chip"><span className="chip-field">订单编号</span> ← 马帮字段</span>
+                  <span className="mapping-chip"><span className="chip-field">店铺名</span> ← 马帮字段</span>
+                  <span className="mapping-chip"><span className="chip-field">国家</span> ← 马帮字段</span>
+                  <span className="mapping-chip"><span className="chip-field">商品名</span> ← 订单商品名称</span>
+                  <span className="mapping-chip"><span className="chip-field">数量</span> ← 平台SKU数量</span>
+                  <span className="mapping-chip"><span className="chip-field">发货时间</span> ← 马帮字段</span>
+                  <span className="mapping-note">同订单多SKU自动合并</span>
+                </>
+              ) : (
+                Object.entries(preview.fieldMap).filter(([_, v]) => v && typeof v === 'string').map(([field, col]) => (
+                  <span key={field} className="mapping-chip"><span className="chip-field">{field}</span> ← {col}</span>
+                ))
+              )}
             </div>
             <div className="preview-table-wrap">
               <table className="preview-table">
@@ -441,7 +531,6 @@ function NewProductTracker({ orders, allOrders }) {
   const [newProducts, setNewProducts] = useState([])
   const [name, setName] = useState('')
   const [launchDate, setLaunchDate] = useState('')
-  const [editing, setEditing] = useState(null)
 
   useEffect(() => {
     try {
