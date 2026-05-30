@@ -1,14 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
-import { analyzeOrders } from '../lib/gemini'
+import { analyzeOrders } from '../lib/analyzer'
 import { getUpcomingHolidays, formatDate, isImportant } from '../lib/holidays'
 import * as XLSX from 'xlsx'
+import ReactECharts from 'echarts-for-react'
 
 export default function Dashboard() {
   const [user, setUser] = useState(null)
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [showImport, setShowImport] = useState(false)
+  const [activeTab, setActiveTab] = useState('overview')
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUser(data.user))
@@ -37,32 +39,28 @@ export default function Dashboard() {
 
   return (
     <div className="dashboard">
-      {/* 顶部导航 */}
       <header className="topbar">
         <div className="topbar-left">
-          <div className="logo-mark">
-            <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-              <rect width="32" height="32" rx="8" fill="#6366f1"/>
-              <path d="M8 16h16M16 8v16" stroke="white" strokeWidth="3" strokeLinecap="round"/>
-              <circle cx="16" cy="16" r="5" stroke="white" strokeWidth="2"/>
-            </svg>
-          </div>
+          <div className="logo-box">LO</div>
           <div>
             <h2>Lucky Order</h2>
-            <span className="badge">出库数据分析看板</span>
+            <span className="badge">出库数据分析</span>
           </div>
         </div>
         <div className="topbar-center">
-          <button className={`nav-pill ${!showImport ? 'active' : ''}`} onClick={() => setShowImport(false)}>
-            📊 数据看板
+          <button className={`nav-btn ${!showImport ? 'active' : ''}`} onClick={() => setShowImport(false)}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+            数据看板
           </button>
-          <button className={`nav-pill ${showImport ? 'active' : ''}`} onClick={() => setShowImport(true)}>
-            📥 数据导入
+          <button className={`nav-btn ${showImport ? 'active' : ''}`} onClick={() => setShowImport(true)}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            数据导入
           </button>
         </div>
         <div className="topbar-right">
-          <span className="user-email">{user.email}</span>
-          <button className="btn btn-outline btn-sm" onClick={handleLogout}>退出</button>
+          <div className="user-avatar">{user.email?.charAt(0).toUpperCase()}</div>
+          <span className="user-email">{user.email?.split('@')[0]}</span>
+          <button className="btn-outline-sm" onClick={handleLogout}>退出</button>
         </div>
       </header>
 
@@ -70,7 +68,7 @@ export default function Dashboard() {
         {showImport ? (
           <DataImport onImported={() => { loadOrders(); setShowImport(false) }} />
         ) : (
-          <DashboardView orders={orders} loading={loading} onRefresh={loadOrders} user={user} />
+          <DashboardView orders={orders} loading={loading} onRefresh={loadOrders} />
         )}
       </div>
     </div>
@@ -95,24 +93,18 @@ function DataImport({ onImported }) {
       const rows = XLSX.utils.sheet_to_json(sheet)
       if (!rows || rows.length === 0) throw new Error('表格中没有数据')
 
-      // 尝试自动识别列名
       const sample = rows[0]
       const keys = Object.keys(sample)
-
-      // 自动匹配字段
       const fieldMap = {
-        order_no: findKey(keys, ['订单号', '订单编号', 'order_no', 'order_no', 'OrderNo', 'orderno']),
-        product_category: findKey(keys, ['品类', '产品大类', '分类', '产品类别', 'category', 'Category']),
-        product_name: findKey(keys, ['产品名称', '产品名', '商品名称', 'product_name', 'ProductName']),
-        quantity: findKey(keys, ['数量', '出库数量', '出库量', 'qty', 'Qty', 'quantity', 'Quantity']),
-        total_amount: findKey(keys, ['金额', '总金额', '销售额', '金额', 'amount', 'Amount', 'total_amount']),
-        order_date: findKey(keys, ['日期', '下单日期', '出库日期', '日期', 'date', 'Date', 'order_date']),
-        order_status: findKey(keys, ['状态', '订单状态', 'status', 'Status']),
-        supplier: findKey(keys, ['供应商', 'supplier', 'Supplier']),
-        remark: findKey(keys, ['备注', 'remark', 'Remark']),
-        unit_price: findKey(keys, ['单价', 'unit_price', 'UnitPrice', 'price', 'Price']),
+        order_no: findKey(keys, ['订单号','订单编号','order_no','OrderNo','orderno']),
+        product_category: findKey(keys, ['品类','产品大类','分类','产品类别','category','Category']),
+        product_name: findKey(keys, ['产品名称','产品名','商品名称','product_name','ProductName']),
+        quantity: findKey(keys, ['数量','出库数量','出库量','qty','Qty','quantity','Quantity']),
+        total_amount: findKey(keys, ['金额','总金额','销售额','amount','Amount','total_amount']),
+        order_date: findKey(keys, ['日期','下单日期','出库日期','date','Date','order_date']),
+        order_status: findKey(keys, ['状态','订单状态','status','Status']),
+        supplier: findKey(keys, ['供应商','supplier','Supplier']),
       }
-
       setPreview({ rows: rows.slice(0, 5), total: rows.length, fieldMap, allRows: rows, keys })
     } catch (err) {
       setError(err.message)
@@ -125,36 +117,28 @@ function DataImport({ onImported }) {
     if (!preview) return
     setParsing(true)
     setError('')
-
     try {
       const user = (await supabase.auth.getUser()).data.user
       const fm = preview.fieldMap
-      const batchSize = 100
       let imported = 0
-
-      for (let i = 0; i < preview.allRows.length; i += batchSize) {
-        const batch = preview.allRows.slice(i, i + batchSize).map(row => ({
+      for (let i = 0; i < preview.allRows.length; i += 100) {
+        const batch = preview.allRows.slice(i, i + 100).map(row => ({
           user_id: user.id,
-          order_no: String(row[fm.order_no] || ''),
+          order_no: String(row[fm.order_no] || '') || `IMP-${Date.now()}-${i}`,
           product_category: String(row[fm.product_category] || '未分类'),
           product_name: String(row[fm.product_name] || ''),
           quantity: parseInt(row[fm.quantity]) || 1,
-          unit_price: fm.unit_price ? parseFloat(row[fm.unit_price]) || null : null,
           total_amount: fm.total_amount ? parseFloat(row[fm.total_amount]) || 0 : 0,
           order_date: fm.order_date ? formatExcelDate(row[fm.order_date]) : new Date().toISOString().split('T')[0],
-          order_status: fm.order_status ? mapStatus(String(row[fm.order_status])) : 'pending',
+          order_status: fm.order_status ? mapStatus(String(row[fm.order_status])) : 'completed',
           supplier: fm.supplier ? String(row[fm.supplier] || '') : '',
-          remark: fm.remark ? String(row[fm.remark] || '') : '',
         }))
-
         const { error: err } = await supabase.from('orders').insert(batch)
         if (err) throw err
         imported += batch.length
       }
-
       setPreview(null)
       onImported()
-      alert(`✅ 成功导入 ${imported} 条订单数据！`)
     } catch (err) {
       setError('导入失败：' + err.message)
     } finally {
@@ -162,89 +146,58 @@ function DataImport({ onImported }) {
     }
   }
 
-  const handleDrop = (e) => {
-    e.preventDefault()
-    setDragOver(false)
-    const file = e.dataTransfer.files[0]
-    if (file) parseFile(file)
-  }
-
-  const handleChange = (e) => {
-    const file = e.target.files[0]
-    if (file) parseFile(file)
-  }
+  const handleDrop = (e) => { e.preventDefault(); setDragOver(false); const file = e.dataTransfer.files[0]; if (file) parseFile(file) }
+  const handleChange = (e) => { const file = e.target.files[0]; if (file) parseFile(file) }
 
   return (
     <div className="import-page">
-      <div className="import-container">
+      <div className="import-card">
         <div className="import-header">
           <h3>📥 导入出库数据</h3>
-          <p>支持 Excel (.xlsx / .xls) 或 CSV 文件，系统自动识别字段并导入</p>
+          <p>拖拽或选择 Excel 文件，系统自动识别字段</p>
         </div>
-
         {!preview ? (
           <div className={`dropzone ${dragOver ? 'dropzone-active' : ''}`}
             onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
             onDragLeave={() => setDragOver(false)}
-            onDrop={handleDrop}
-            onClick={() => fileRef.current?.click()}>
+            onDrop={handleDrop} onClick={() => fileRef.current?.click()}>
             <div className="dropzone-icon">
-              <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-                <rect x="8" y="4" width="32" height="40" rx="4" stroke="#6366f1" strokeWidth="2" fill="rgba(99,102,241,0.05)"/>
-                <path d="M24 18v14M17 25l7 7 7-7" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+                <rect x="10" y="6" width="36" height="44" rx="6" stroke="#6366f1" strokeWidth="2" fill="rgba(99,102,241,0.05)"/>
+                <path d="M28 20v18M19 29l9 9 9-9" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </div>
-            <p className="dropzone-text">
-              {parsing ? '⏳ 解析文件中...' : '拖拽 Excel / CSV 文件到此处，或点击选择文件'}
-            </p>
-            <p className="dropzone-hint">支持 .xlsx、.xls、.csv 格式</p>
+            <p className="dropzone-text">{parsing ? '⏳ 解析中...' : '拖拽 Excel / CSV 到此处'}</p>
+            <p className="dropzone-hint">支持 .xlsx .xls .csv 格式</p>
             <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleChange} hidden />
-            {!parsing && <button className="btn btn-outline" onClick={(e) => { e.stopPropagation(); fileRef.current?.click() }}>选择文件</button>}
+            {!parsing && <button className="btn-ghost" onClick={(e) => { e.stopPropagation(); fileRef.current?.click() }}>选择文件</button>}
           </div>
         ) : (
           <div className="preview-area">
             <div className="preview-header">
-              <span>📄 共识别 <strong>{preview.total}</strong> 条数据记录</span>
+              <span className="preview-count">📄 识别 <strong>{preview.total}</strong> 条数据</span>
               <div className="preview-actions">
-                <button className="btn btn-outline btn-sm" onClick={() => setPreview(null)}>取消</button>
-                <button className="btn btn-primary btn-sm" onClick={handleImport} disabled={parsing}>
-                  {parsing ? '导入中...' : '✅ 确认导入全部数据'}
+                <button className="btn-ghost" onClick={() => setPreview(null)}>取消</button>
+                <button className="btn-primary-sm" onClick={handleImport} disabled={parsing}>
+                  {parsing ? '⏳ 导入中...' : '✅ 确认导入'}
                 </button>
               </div>
             </div>
-
-            <div className="field-mapping">
-              <h4>字段映射</h4>
-              <div className="mapping-grid">
-                {Object.entries(preview.fieldMap).filter(([_, v]) => v).map(([field, col]) => (
-                  <div key={field} className="mapping-item">
-                    <span className="mapping-field">{field}</span>
-                    <span className="mapping-arrow">→</span>
-                    <span className="mapping-col">{col}</span>
-                  </div>
-                ))}
-              </div>
+            <div className="field-mapping-bar">
+              {Object.entries(preview.fieldMap).filter(([_, v]) => v).map(([field, col]) => (
+                <span key={field} className="mapping-chip"><span className="chip-field">{field}</span> ← {col}</span>
+              ))}
             </div>
-
             <div className="preview-table-wrap">
               <table className="preview-table">
-                <thead>
-                  <tr>
-                    {preview.keys.map(k => <th key={k}>{k}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {preview.rows.map((row, i) => (
-                    <tr key={i}>
-                      {preview.keys.map(k => <td key={k}>{String(row[k] ?? '').slice(0, 30)}</td>)}
-                    </tr>
-                  ))}
-                </tbody>
+                <thead><tr>{preview.keys.map(k => <th key={k}>{k}</th>)}</tr></thead>
+                <tbody>{preview.rows.map((row, i) => (
+                  <tr key={i}>{preview.keys.map(k => <td key={k}>{String(row[k] ?? '').slice(0, 30)}</td>)}</tr>
+                ))}</tbody>
               </table>
-              {preview.total > 5 && <p className="preview-more">...还有 {preview.total - 5} 条记录</p>}
+              {preview.total > 5 && <p className="preview-more">...还有 {preview.total - 5} 条</p>}
             </div>
-
-            {error && <div className="msg msg-error">{error}</div>}
+            {error && <div className="error-msg">{error}</div>}
           </div>
         )}
       </div>
@@ -253,373 +206,223 @@ function DataImport({ onImported }) {
 }
 
 /* ========== 数据看板 ========== */
-function DashboardView({ orders, loading, onRefresh, user }) {
+function DashboardView({ orders, loading, onRefresh }) {
   const [activeTab, setActiveTab] = useState('overview')
+
+  const total = orders.length
+  const totalQty = orders.reduce((s, o) => s + o.quantity, 0)
+  const totalAmt = orders.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0)
+  const urgentCount = orders.filter(o => o.is_urgent).length
 
   const catMap = {}
   orders.forEach(o => {
-    if (!catMap[o.product_category]) catMap[o.product_category] = { count: 0, amount: 0 }
-    catMap[o.product_category].count += o.quantity
-    catMap[o.product_category].amount += parseFloat(o.total_amount || 0)
+    const cat = o.product_category || '未分类'
+    if (!catMap[cat]) catMap[cat] = { count: 0, qty: 0, amount: 0 }
+    catMap[cat].count++
+    catMap[cat].qty += o.quantity
+    catMap[cat].amount += parseFloat(o.total_amount || 0)
   })
+  const catSorted = Object.entries(catMap).sort((a, b) => b[1].qty - a[1].qty)
 
   const statusMap = {}
-  orders.forEach(o => {
-    statusMap[o.order_status] = (statusMap[o.order_status] || 0) + 1
-  })
+  const statusLabel = { pending: '待处理', processing: '生产中', shipped: '已发货', completed: '已完成', cancelled: '已取消' }
+  orders.forEach(o => { statusMap[o.order_status] = (statusMap[o.order_status] || 0) + 1 })
 
-  const urgentCount = orders.filter(o => o.is_urgent).length
-  const totalAmt = orders.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0)
+  const supMap = {}
+  orders.forEach(o => { if (o.supplier) supMap[o.supplier] = (supMap[o.supplier] || 0) + o.qty })
+  const supSorted = Object.entries(supMap).sort((a, b) => b[1] - a[1])
 
   const now = new Date()
   const dayMap = {}
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date(now); d.setDate(d.getDate() - i)
-    dayMap[d.toISOString().split('T')[0]] = 0
-  }
-  orders.forEach(o => {
-    if (dayMap[o.order_date] !== undefined) dayMap[o.order_date]++
-  })
-  const maxDay = Math.max(...Object.values(dayMap), 1)
+  for (let i = 6; i >= 0; i--) { const d = new Date(now); d.setDate(d.getDate() - i); dayMap[d.toISOString().split('T')[0]] = 0 }
+  orders.forEach(o => { if (dayMap[o.order_date] !== undefined) dayMap[o.order_date]++ })
+  const dayEntries = Object.entries(dayMap)
 
-  const statusLabel = { pending: '待处理', processing: '生产中', shipped: '已发货', completed: '已完成', cancelled: '已取消' }
-  const catColors = { 胶垫: '#f97316', 光敏: '#3b82f6', 金属: '#10b981', 亚克力: '#8b5cf6', 皮革: '#ec4899', 签字笔: '#14b8a6' }
+  const monthMap = {}
+  orders.forEach(o => {
+    if (!o.order_date) return
+    const m = o.order_date.slice(0, 7)
+    monthMap[m] = (monthMap[m] || 0) + o.quantity
+  })
 
   return (
     <div className="dashboard-view">
-      {/* 海外节假日横幅 */}
       <HolidayBanner />
 
-      {/* 统计卡片 */}
-      <div className="stats-cards">
-        <div className="stat-card-modern">
-          <div className="stat-icon" style={{ background: '#ede9fe', color: '#6d28d9' }}>📦</div>
-          <div className="stat-info">
-            <div className="stat-num">{orders.length}</div>
-            <div className="stat-label">总订单数</div>
-          </div>
-          <div className="stat-trend up">+{orders.length > 0 ? Math.round((orders.length / Math.max(1, orders.length - 3)) * 100 - 100) || 0 : 0}%</div>
-        </div>
-        <div className="stat-card-modern">
-          <div className="stat-icon" style={{ background: '#dbeafe', color: '#2563eb' }}>📊</div>
-          <div className="stat-info">
-            <div className="stat-num">{orders.reduce((s, o) => s + o.quantity, 0)}</div>
-            <div className="stat-label">总出库量</div>
-          </div>
-        </div>
-        <div className="stat-card-modern">
-          <div className="stat-icon" style={{ background: '#dcfce7', color: '#16a34a' }}>💰</div>
-          <div className="stat-info">
-            <div className="stat-num">¥{totalAmt.toFixed(0)}</div>
-            <div className="stat-label">总金额</div>
-          </div>
-        </div>
-        <div className="stat-card-modern">
-          <div className="stat-icon" style={{ background: '#fef3c7', color: '#d97706' }}>⚡</div>
-          <div className="stat-info">
-            <div className="stat-num">{urgentCount}</div>
-            <div className="stat-label">加急单</div>
-          </div>
-        </div>
-        <div className="stat-card-modern">
-          <div className="stat-icon" style={{ background: '#fce7f3', color: '#db2777' }}>🏆</div>
-          <div className="stat-info">
-            <div className="stat-num">{catMap && Object.keys(catMap).length || 0}</div>
-            <div className="stat-label">品类数</div>
-          </div>
-        </div>
-        <div className="stat-card-modern action-card" onClick={onRefresh}>
-          <div className="stat-icon" style={{ background: '#f3e8ff', color: '#9333ea' }}>🔄</div>
-          <div className="stat-info">
-            <div className="stat-num" style={{ fontSize: 14 }}>刷新数据</div>
-            <div className="stat-label">点击刷新</div>
-          </div>
-        </div>
+      {/* KPI 卡片 */}
+      <div className="kpi-row">
+        <div className="kpi-card"><div className="kpi-icon" style={{background:'#ede9fe',color:'#6d28d9'}}>📦</div><div><div className="kpi-num">{total}</div><div className="kpi-label">总订单</div></div></div>
+        <div className="kpi-card"><div className="kpi-icon" style={{background:'#dbeafe',color:'#2563eb'}}>📊</div><div><div className="kpi-num">{totalQty.toLocaleString()}</div><div className="kpi-label">总出库量</div></div></div>
+        <div className="kpi-card"><div className="kpi-icon" style={{background:'#dcfce7',color:'#16a34a'}}>💰</div><div><div className="kpi-num">¥{totalAmt.toFixed(0)}</div><div className="kpi-label">总金额</div></div></div>
+        <div className="kpi-card"><div className="kpi-icon" style={{background:'#fef3c7',color:'#d97706'}}>⚡</div><div><div className="kpi-num">{urgentCount}</div><div className="kpi-label">加急单</div></div></div>
+        <div className="kpi-card"><div className="kpi-icon" style={{background:'#fce7f3',color:'#db2777'}}>🏷️</div><div><div className="kpi-num">{catSorted.length}</div><div className="kpi-label">品类数</div></div></div>
+        <div className="kpi-card action" onClick={onRefresh}><div className="kpi-icon" style={{background:'#f3e8ff',color:'#9333ea'}}>🔄</div><div><div className="kpi-num" style={{fontSize:14}}>刷新</div><div className="kpi-label">点击刷新</div></div></div>
       </div>
 
-      {/* Tab 切换 */}
-      <div className="dashboard-tabs">
-        <button className={`dtab ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}>品类概览</button>
-        <button className={`dtab ${activeTab === 'trend' ? 'active' : ''}`} onClick={() => setActiveTab('trend')}>趋势分析</button>
-        <button className={`dtab ${activeTab === 'status' ? 'active' : ''}`} onClick={() => setActiveTab('status')}>状态分布</button>
-        <button className={`dtab ${activeTab === 'table' ? 'active' : ''}`} onClick={() => setActiveTab('table')}>数据明细</button>
+      {/* Tab 导航 */}
+      <div className="tab-bar">
+        <button className={`tab-pill ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}>品类概览</button>
+        <button className={`tab-pill ${activeTab === 'trend' ? 'active' : ''}`} onClick={() => setActiveTab('trend')}>趋势分析</button>
+        <button className={`tab-pill ${activeTab === 'supplier' ? 'active' : ''}`} onClick={() => setActiveTab('supplier')}>供应商分析</button>
+        <button className={`tab-pill ${activeTab === 'table' ? 'active' : ''}`} onClick={() => setActiveTab('table')}>数据明细</button>
+        <button className={`tab-pill ${activeTab === 'ai' ? 'active' : ''}`} onClick={() => setActiveTab('ai')}>AI 洞察</button>
       </div>
 
-      {/* 内容区 */}
       {activeTab === 'overview' && (
         <div className="tab-content">
           <div className="chart-row">
-            <div className="chart-card-modern">
-              <div className="chart-header">
-                <h4>品类出库排行 TOP 15</h4>
-                <span className="chart-badge">按出库量排序</span>
-              </div>
-              <div className="chart-body">
-                {loading ? <div className="loading-sm">加载中...</div> :
-                Object.keys(catMap).length === 0 ? <div className="empty-sm">暂无数据，请先导入订单</div> :
-                <div className="bar-list">
-                  {Object.entries(catMap).sort((a, b) => b[1].count - a[1].count).slice(0, 15).map(([cat, v], i) => (
-                    <div key={cat} className="bar-row">
-                      <span className="bar-rank">{i + 1}</span>
-                      <span className="bar-name">{cat}</span>
-                      <div className="bar-track-wrap">
-                        <div className="bar-track-modern">
-                          <div className="bar-fill-modern" style={{
-                            width: `${(v.count / Math.max(...Object.values(catMap).map(x => x.count))) * 100}%`,
-                            background: catColors[cat] || '#6366f1'
-                          }} />
-                        </div>
-                      </div>
-                      <span className="bar-val">{v.count.toLocaleString()}</span>
-                    </div>
-                  ))}
-                </div>}
+            <div className="chart-card">
+              <div className="chart-title">品类出库排行</div>
+              <div style={{height: catSorted.length > 0 ? Math.max(200, catSorted.length * 36) : 200}}>
+                <ReactECharts option={getBarOption(catSorted.map(([c]) => c), catSorted.map(([, v]) => v.qty), '#6366f1')} style={{height:'100%'}} opts={{renderer:'svg'}} />
               </div>
             </div>
-
-            <div className="chart-card-modern">
-              <div className="chart-header">
-                <h4>品类占比</h4>
-                <span className="chart-badge">TOP 8</span>
-              </div>
-              <div className="chart-body pie-container">
-                {loading ? <div className="loading-sm">加载中...</div> :
-                Object.keys(catMap).length === 0 ? <div className="empty-sm">暂无数据</div> :
-                <div className="pie-chart">
-                  {Object.entries(catMap).sort((a, b) => b[1].count - a[1].count).slice(0, 8).map(([cat, v], i, arr) => {
-                    const total = arr.reduce((s, [, x]) => s + x.count, 0)
-                    const pct = ((v.count / total) * 100).toFixed(1)
-                    const colors = ['#6366f1','#8b5cf6','#a855f7','#ec4899','#f43f5e','#f97316','#eab308','#10b981']
-                    // 计算饼图扇区的角度
-                    const cumPct = arr.slice(0, i).reduce((s, [, x]) => s + (x.count / total) * 100, 0)
-                    const rot = (cumPct / 100) * 360
-                    const deg = (pct / 100) * 360
-                    return (
-                      <div key={cat} className="pie-legend-item">
-                        <span className="pie-dot" style={{ background: colors[i % colors.length] }}></span>
-                        <span className="pie-lname">{cat}</span>
-                        <span className="pie-lpct">{pct}%</span>
-                        <span className="pie-lval">{v.count.toLocaleString()}</span>
-                      </div>
-                    )
-                  })}
-                  {/* 简单的环图代替SVG */}
-                  <div className="donut-chart-visual">
-                    {Object.entries(catMap).sort((a, b) => b[1].count - a[1].count).slice(0, 8).map(([cat, v], i, arr) => {
-                      const total = arr.reduce((s, [, x]) => s + x.count, 0)
-                      const pct = (v.count / total) * 100
-                      const colors = ['#6366f1','#8b5cf6','#a855f7','#ec4899','#f43f5e','#f97316','#eab308','#10b981']
-                      return <div key={cat} className="donut-seg" style={{ width: `${pct}%`, background: colors[i % colors.length] }} />
-                    })}
-                  </div>
-                </div>}
-              </div>
+            <div className="chart-card">
+              <div className="chart-title">品类占比</div>
+              <ReactECharts option={getPieOption(catSorted.slice(0, 8).map(([c, v]) => ({name: c, value: v.qty})))} style={{height:260}} opts={{renderer:'svg'}} />
             </div>
           </div>
-
-          {/* AI 分析 */}
-          <AIAnalysis orders={orders} />
+          {total === 0 && <div className="empty-state">📭 暂无数据，请先导入订单数据</div>}
         </div>
       )}
 
       {activeTab === 'trend' && (
         <div className="tab-content">
-          <div className="chart-card-modern wide">
-            <div className="chart-header">
-              <h4>近7天订单趋势</h4>
-              <span className="chart-badge">每日单量</span>
-            </div>
-            <div className="chart-body">
-              {Object.values(dayMap).every(v => v === 0) ? <div className="empty-sm">暂无数据</div> : (
-                <div className="trend-chart">
-                  {Object.entries(dayMap).map(([d, v]) => {
-                    const pct = (v / maxDay) * 100
-                    const isToday = d === now.toISOString().split('T')[0]
-                    return (
-                      <div key={d} className="trend-item">
-                        <div className="trend-bar-wrap">
-                          <div className="trend-bar" style={{ height: `${Math.max(4, pct)}%` }}>
-                            <div className={`trend-fill ${isToday ? 'trend-today' : ''}`} style={{ height: '100%' }} />
-                          </div>
-                        </div>
-                        <span className="trend-val">{v}</span>
-                        <span className={`trend-label ${isToday ? 'trend-today-label' : ''}`}>
-                          {d.slice(5)}
-                          {isToday && <span className="today-dot">·</span>}
-                        </span>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
+          <div className="chart-row">
+            <div className="chart-card wide">
+              <div className="chart-title">近7天订单趋势</div>
+              <ReactECharts option={getTrendOption(dayEntries.map(([d]) => d.slice(5)), dayEntries.map(([, v]) => v))} style={{height:280}} opts={{renderer:'svg'}} />
             </div>
           </div>
-
-          <div className="chart-row">
-            <div className="chart-card-modern">
-              <div className="chart-header">
-                <h4>月度汇总</h4>
-              </div>
-              <div className="chart-body">
-                {loading ? <div className="loading-sm">加载中...</div> :
-                orders.length === 0 ? <div className="empty-sm">暂无数据</div> : (
-                  <div className="monthly-summary">
-                    <div className="ms-item"><span className="ms-label">本月订单</span><span className="ms-val">{orders.filter(o => o.order_date?.startsWith(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`)).length}</span></div>
-                    <div className="ms-item"><span className="ms-label">日均单量</span><span className="ms-val">{(orders.length / Math.max(1, now.getDate())).toFixed(1)}</span></div>
-                    <div className="ms-item"><span className="ms-label">客单价</span><span className="ms-val">¥{(totalAmt / Math.max(1, orders.length)).toFixed(0)}</span></div>
-                    <div className="ms-item"><span className="ms-label">加急占比</span><span className="ms-val">{((urgentCount / Math.max(1, orders.length)) * 100).toFixed(1)}%</span></div>
-                  </div>
-                )}
-              </div>
+          {Object.keys(monthMap).length > 0 && (
+            <div className="chart-card wide">
+              <div className="chart-title">月度出库趋势</div>
+              <ReactECharts option={getTrendOption(Object.keys(monthMap), Object.values(monthMap))} style={{height:280}} opts={{renderer:'svg'}} />
             </div>
-            <div className="chart-card-modern">
-              <div className="chart-header">
-                <h4>供应商分布</h4>
-              </div>
-              <div className="chart-body">
-                {loading ? <div className="loading-sm">加载中...</div> : (() => {
-                  const supMap = {}
-                  orders.forEach(o => {
-                    if (!o.supplier) return
-                    supMap[o.supplier] = (supMap[o.supplier] || 0) + o.quantity
-                  })
-                  const entries = Object.entries(supMap).sort((a, b) => b[1] - a[1])
-                  return entries.length === 0 ? <div className="empty-sm">暂无数据</div> : (
-                    <div className="bar-list">
-                      {entries.slice(0, 8).map(([s, v], i) => (
-                        <div key={s} className="bar-row">
-                          <span className="bar-rank">{i + 1}</span>
-                          <span className="bar-name">{s}</span>
-                          <div className="bar-track-wrap">
-                            <div className="bar-track-modern">
-                              <div className="bar-fill-modern" style={{ width: `${(v / entries[0][1]) * 100}%`, background: '#06b6d4' }} />
-                            </div>
-                          </div>
-                          <span className="bar-val">{v.toLocaleString()}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )
-                })()}
-              </div>
-            </div>
+          )}
+          <div className="stats-grid">
+            <div className="stat-item"><span className="stat-l">日均出库</span><span className="stat-v">{(totalQty / Math.max(1, now.getDate())).toFixed(1)}件</span></div>
+            <div className="stat-item"><span className="stat-l">客单价</span><span className="stat-v">¥{(totalAmt / Math.max(1, total)).toFixed(0)}</span></div>
+            <div className="stat-item"><span className="stat-l">加急占比</span><span className="stat-v">{((urgentCount / Math.max(1, total)) * 100).toFixed(1)}%</span></div>
+            <div className="stat-item"><span className="stat-l">完成率</span><span className="stat-v">{(((statusMap['completed']||0) / Math.max(1, total)) * 100).toFixed(0)}%</span></div>
           </div>
         </div>
       )}
 
-      {activeTab === 'status' && (
+      {activeTab === 'supplier' && (
         <div className="tab-content">
           <div className="chart-row">
-            <div className="chart-card-modern">
-              <div className="chart-header">
-                <h4>订单状态分布</h4>
-              </div>
-              <div className="chart-body">
-                {Object.keys(statusMap).length === 0 ? <div className="empty-sm">暂无数据</div> : (
-                  <div className="bar-list">
-                    {Object.entries(statusMap).sort((a, b) => b[1] - a[1]).map(([s, v]) => (
-                      <div key={s} className="bar-row">
-                        <span className="status-badge-sm" style={{ background: statusColor[s] }}>{statusLabel[s]}</span>
-                        <div className="bar-track-wrap">
-                          <div className="bar-track-modern">
-                            <div className="bar-fill-modern" style={{ width: `${(v / orders.length) * 100}%`, background: statusColor[s] }} />
-                          </div>
-                        </div>
-                        <span className="bar-val">{v}单</span>
-                        <span className="bar-pct">{((v / orders.length) * 100).toFixed(1)}%</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+            <div className="chart-card">
+              <div className="chart-title">供应商出库排名</div>
+              <div style={{height: supSorted.length > 0 ? Math.max(200, supSorted.length * 42) : 200}}>
+                <ReactECharts option={getBarOption(supSorted.map(([s]) => s), supSorted.map(([, v]) => v), '#06b6d4')} style={{height:'100%'}} opts={{renderer:'svg'}} />
               </div>
             </div>
-            <div className="chart-card-modern">
-              <div className="chart-header">
-                <h4>加急 vs 常规</h4>
-              </div>
-              <div className="chart-body">
-                <div className="split-bar-container">
-                  <div className="split-bar">
-                    <div className="split-seg urgent-seg" style={{ flex: urgentCount }}>⚡{urgentCount}</div>
-                    <div className="split-seg normal-seg" style={{ flex: orders.length - urgentCount }}>📦{orders.length - urgentCount}</div>
-                  </div>
-                  <div className="split-legend">
-                    <span><span className="split-dot" style={{ background: '#f97316' }}></span>加急 {((urgentCount / Math.max(1, orders.length)) * 100).toFixed(0)}%</span>
-                    <span><span className="split-dot" style={{ background: '#6366f1' }}></span>常规 {((1 - urgentCount / Math.max(1, orders.length)) * 100).toFixed(0)}%</span>
-                  </div>
-                </div>
-              </div>
+            <div className="chart-card">
+              <div className="chart-title">订单状态分布</div>
+              <ReactECharts option={getPieOption(Object.entries(statusMap).map(([k, v]) => ({name: statusLabel[k]||k, value: v})))} style={{height:260}} opts={{renderer:'svg'}} />
             </div>
+          </div>
+          <div className="chart-card wide">
+            <div className="chart-title">加急 vs 常规</div>
+            {total > 0 && (
+              <div className="split-bar-container">
+                <div className="split-bar"><div className="split-seg urgent-seg" style={{flex:urgentCount}}>⚡加急 {urgentCount}</div><div className="split-seg normal-seg" style={{flex:total-urgentCount}}>📦常规 {total-urgentCount}</div></div>
+              </div>
+            )}
           </div>
         </div>
       )}
 
       {activeTab === 'table' && (
         <div className="tab-content">
-          <OrdersTable orders={orders} loading={loading} onRefresh={onRefresh} />
+          <OrderTable orders={orders} loading={loading} onRefresh={onRefresh} />
+        </div>
+      )}
+
+      {activeTab === 'ai' && (
+        <div className="tab-content">
+          <AIInsight orders={orders} />
         </div>
       )}
     </div>
   )
 }
 
-const statusColor = {
-  pending: '#f59e0b', processing: '#3b82f6', shipped: '#8b5cf6',
-  completed: '#10b981', cancelled: '#ef4444'
+/* ========== 图表配置 ========== */
+const COLORS = ['#6366f1','#8b5cf6','#a855f7','#ec4899','#f43f5e','#f97316','#eab308','#10b981','#06b6d4','#3b82f6']
+
+function getBarOption(labels, values, color) {
+  return {
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    grid: { left: 80, right: 20, top: 10, bottom: 20 },
+    xAxis: { type: 'value', splitLine: { lineStyle: { color: '#f1f5f9' } } },
+    yAxis: { type: 'category', data: labels.reverse(), axisLine: { show: false }, axisTick: { show: false }, axisLabel: { fontSize: 12 } },
+    series: [{ type: 'bar', data: values.reverse(), itemStyle: { color, borderRadius: [0, 6, 6, 0] }, barWidth: 20 }]
+  }
 }
 
-/* ========== 海外节假日 ========== */
-function HolidayBanner() {
-  const [holidayData, setHolidayData] = useState({ current: null, next: null })
-  useEffect(() => { setHolidayData(getUpcomingHolidays()) }, [])
-  const { current, next } = holidayData
-  if (!current) return null
+function getPieOption(data) {
+  return {
+    tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+    series: [{
+      type: 'pie', radius: ['35%', '65%'], center: ['50%', '50%'],
+      data: data.map((d, i) => ({ ...d, itemStyle: { color: COLORS[i % COLORS.length] } })),
+      label: { fontSize: 12, formatter: '{b}\n{d}%' },
+      emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.2)' } }
+    }]
+  }
+}
 
+function getTrendOption(labels, values) {
+  return {
+    tooltip: { trigger: 'axis' },
+    grid: { left: 50, right: 20, top: 20, bottom: 25 },
+    xAxis: { type: 'category', data: labels, axisLabel: { fontSize: 11 } },
+    yAxis: { type: 'value', splitLine: { lineStyle: { color: '#f1f5f9' } } },
+    series: [{
+      type: 'line', data: values, smooth: true, symbol: 'circle', symbolSize: 8,
+      lineStyle: { color: '#6366f1', width: 3 },
+      areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(99,102,241,0.3)' }, { offset: 1, color: 'rgba(99,102,241,0.02)' }] } },
+      itemStyle: { color: '#6366f1' }
+    }]
+  }
+}
+
+/* ========== 节假日横幅 ========== */
+function HolidayBanner() {
+  const [hd, setHd] = useState({ current: null, next: null })
+  useEffect(() => { setHd(getUpcomingHolidays()) }, [])
+  if (!hd.current) return null
   return (
     <div className="holiday-banner">
-      <div className="holiday-header">
-        <span className="holiday-icon">🌍</span>
-        <span className="holiday-title">海外营销日历</span>
-      </div>
-      <div className="holiday-body">
-        <div className="holiday-month">
-          <span className="month-label">{current.month}月</span>
-          <div className="holiday-tags">
-            {current.events.map((e, i) => (
-              <span key={i} className={`holiday-tag ${isImportant(e) ? 'holiday-important' : ''}`} title={e.note}>
-                <span className="holiday-date">{formatDate(e.date)}</span>
-                {isImportant(e) && '🔥 '}{e.name}
-                <span className="holiday-region">{e.region}</span>
-              </span>
-            ))}
-          </div>
-        </div>
-        {next && (
-          <div className="holiday-month">
-            <span className="month-label">{next.month}月</span>
-            <div className="holiday-tags">
-              {next.events.slice(0, 4).map((e, i) => (
-                <span key={i} className={`holiday-tag ${isImportant(e) ? 'holiday-important' : ''}`} title={e.note}>
-                  <span className="holiday-date">{formatDate(e.date)}</span>
-                  {isImportant(e) && '🔥 '}{e.name}
-                  <span className="holiday-region">{e.region}</span>
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
+      <span className="holiday-icon">🌍</span>
+      <span className="holiday-label">营销日历</span>
+      <div className="holiday-tags">
+        {hd.current.events.map((e, i) => (
+          <span key={i} className={`holiday-tag ${isImportant(e) ? 'imp' : ''}`} title={e.note}>
+            <span className="holiday-date">{formatDate(e.date)}</span>
+            {isImportant(e) && '🔥'}{e.name}
+            <span className="holiday-region">{e.region}</span>
+          </span>
+        ))}
+        {hd.next?.events.slice(0, 3).map((e, i) => (
+          <span key={i} className={`holiday-tag ${isImportant(e) ? 'imp' : ''}`} title={e.note}>
+            {formatDate(e.date)} {e.name}
+          </span>
+        ))}
       </div>
     </div>
   )
 }
 
-/* ========== AI 分析 ========== */
-function AIAnalysis({ orders }) {
+/* ========== AI 洞察 ========== */
+function AIInsight({ orders }) {
   const [report, setReport] = useState('')
   const [analyzing, setAnalyzing] = useState(false)
 
   const handleAnalyze = async () => {
-    if (orders.length === 0) { setReport('暂无订单数据，请先导入数据～'); return }
+    if (orders.length === 0) { setReport('暂无数据，请先导入订单～'); return }
     setAnalyzing(true); setReport('')
     setReport(await analyzeOrders(orders))
     setAnalyzing(false)
@@ -627,25 +430,19 @@ function AIAnalysis({ orders }) {
 
   return (
     <div className="ai-card">
-      <div className="ai-card-header">
-        <div className="ai-card-left">
-          <span className="ai-icon">🤖</span>
-          <div>
-            <h4>AI 智能洞察</h4>
-            <p className="ai-sub">基于 Gemini AI 自动生成数据分析报告</p>
-          </div>
-        </div>
-        <button className="btn btn-primary btn-sm" onClick={handleAnalyze} disabled={analyzing}>
+      <div className="ai-header">
+        <div className="ai-title"><span className="ai-icon">🧠</span><div><h4>AI 智能数据洞察</h4><p className="ai-desc">基于订单数据的本地智能分析，不限次数永久免费</p></div></div>
+        <button className={`btn-ai ${analyzing ? 'loading' : ''}`} onClick={handleAnalyze} disabled={analyzing}>
           {analyzing ? '⏳ 分析中...' : '🚀 开始分析'}
         </button>
       </div>
-      {report && <div className="ai-report"><div className="ai-report-content">{report}</div></div>}
+      {report && <div className="ai-report"><pre className="ai-text">{report}</pre></div>}
     </div>
   )
 }
 
 /* ========== 订单表格 ========== */
-function OrdersTable({ orders, loading, onRefresh }) {
+function OrderTable({ orders, loading, onRefresh }) {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
@@ -656,50 +453,37 @@ function OrdersTable({ orders, loading, onRefresh }) {
     if (search && !o.order_no?.toLowerCase().includes(search.toLowerCase())) return false
     return true
   })
-
   const statusLabel = { pending: '待处理', processing: '生产中', shipped: '已发货', completed: '已完成', cancelled: '已取消' }
+  const statusColor = { pending: '#f59e0b', processing: '#3b82f6', shipped: '#8b5cf6', completed: '#10b981', cancelled: '#ef4444' }
 
   return (
     <div>
-      <div className="table-toolbar">
-        <h4>📋 订单明细</h4>
+      <div className="table-bar">
+        <h4>📋 订单明细 · <span className="count">{filtered.length}</span></h4>
         <div className="table-filters">
           <input placeholder="🔍 搜索订单号..." value={search} onChange={e => setSearch(e.target.value)} className="filter-input" />
-          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="filter-select">
-            <option value="">全部状态</option>
-            {Object.entries(statusLabel).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-          </select>
-          <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="filter-select">
-            <option value="">全部品类</option>
-            <option>胶垫</option><option>光敏</option><option>金属</option><option>亚克力</option><option>皮革</option><option>签字笔</option>
-          </select>
-          <button className="btn btn-sm btn-outline" onClick={onRefresh}>🔄</button>
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="filter-select"><option value="">全部状态</option>{Object.entries(statusLabel).map(([k,v]) => <option key={k} value={k}>{v}</option>)}</select>
+          <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="filter-select"><option value="">全部品类</option>{['胶垫','光敏','金属','亚克力','皮革','签字笔'].map(c => <option key={c}>{c}</option>)}</select>
+          <button className="btn-outline-sm" onClick={onRefresh}>🔄</button>
         </div>
       </div>
       <div className="table-wrap">
-        {loading ? <div className="loading">加载中...</div> : filtered.length === 0 ? <div className="empty">暂无数据</div> : (
+        {loading ? <div className="empty-state">加载中...</div> : filtered.length === 0 ? <div className="empty-state">暂无数据</div> : (
           <table className="order-table">
-            <thead>
-              <tr>
-                <th>订单号</th><th>品类</th><th>产品</th><th>数量</th><th>金额</th>
-                <th>状态</th><th>供应商</th><th>下单日期</th><th>加急</th>
+            <thead><tr><th>订单号</th><th>品类</th><th>产品</th><th>数量</th><th>金额</th><th>状态</th><th>供应商</th><th>日期</th><th>加急</th></tr></thead>
+            <tbody>{filtered.map(o => (
+              <tr key={o.id}>
+                <td><span className="orderno">{o.order_no}</span></td>
+                <td><span className="cat-tag">{o.product_category}</span></td>
+                <td>{o.product_name}</td>
+                <td>{o.quantity}</td>
+                <td>¥{o.total_amount}</td>
+                <td><span className="status-tag" style={{background:statusColor[o.order_status]}}>{statusLabel[o.order_status]}</span></td>
+                <td>{o.supplier || '-'}</td>
+                <td>{o.order_date}</td>
+                <td>{o.is_urgent ? '⚡' : '-'}</td>
               </tr>
-            </thead>
-            <tbody>
-              {filtered.map(o => (
-                <tr key={o.id}>
-                  <td className="order-no">{o.order_no}</td>
-                  <td><span className="cat-tag">{o.product_category}</span></td>
-                  <td>{o.product_name}</td>
-                  <td>{o.quantity}</td>
-                  <td>¥{o.total_amount}</td>
-                  <td><span className="status-badge" style={{ background: statusColor[o.order_status] }}>{statusLabel[o.order_status]}</span></td>
-                  <td>{o.supplier || '-'}</td>
-                  <td>{o.order_date}</td>
-                  <td>{o.is_urgent ? '⚡' : '-'}</td>
-                </tr>
-              ))}
-            </tbody>
+            ))}</tbody>
           </table>
         )}
       </div>
@@ -708,28 +492,6 @@ function OrdersTable({ orders, loading, onRefresh }) {
 }
 
 /* ========== 工具函数 ========== */
-function findKey(keys, candidates) {
-  for (const c of candidates) {
-    const found = keys.find(k => k.toLowerCase().includes(c.toLowerCase()))
-    if (found) return found
-  }
-  return null
-}
-
-function formatExcelDate(val) {
-  if (!val) return new Date().toISOString().split('T')[0]
-  // Excel serial date number
-  if (typeof val === 'number') {
-    const d = new Date((val - 25569) * 86400 * 1000)
-    return d.toISOString().split('T')[0]
-  }
-  // String date
-  const d = new Date(val)
-  if (!isNaN(d.getTime())) return d.toISOString().split('T')[0]
-  return String(val)
-}
-
-function mapStatus(s) {
-  const map = { '待处理': 'pending', 'pending': 'pending', '生产中': 'processing', 'processing': 'processing', '已发货': 'shipped', 'shipped': 'shipped', '已完成': 'completed', 'completed': 'completed', '已取消': 'cancelled', 'cancelled': 'cancelled' }
-  return map[s.toLowerCase()] || 'pending'
-}
+function findKey(keys, candidates) { for (const c of candidates) { const f = keys.find(k => k.toLowerCase().includes(c.toLowerCase())); if (f) return f } return null }
+function formatExcelDate(val) { if (!val) return new Date().toISOString().split('T')[0]; if (typeof val === 'number') { const d = new Date((val - 25569) * 86400 * 1000); return d.toISOString().split('T')[0] }; const d = new Date(val); return !isNaN(d.getTime()) ? d.toISOString().split('T')[0] : String(val) }
+function mapStatus(s) { const map = { '待处理':'pending','pending':'pending','生产中':'processing','processing':'processing','已发货':'shipped','shipped':'shipped','已完成':'completed','completed':'completed','已取消':'cancelled','cancelled':'cancelled' }; return map[s.toLowerCase()] || 'pending' }
