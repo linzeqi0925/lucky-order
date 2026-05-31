@@ -14,6 +14,8 @@ export default function Dashboard() {
   const [showImport, setShowImport] = useState(false)
   const [showShare, setShowShare] = useState(false)
   const [showRules, setShowRules] = useState(false)
+  const [showClear, setShowClear] = useState(false)
+  const [clearing, setClearing] = useState(false)
   const [exporting, setExporting] = useState(false)
   const dashboardRef = useRef(null)
 
@@ -85,6 +87,7 @@ export default function Dashboard() {
           <button className="btn-outline-sm" onClick={handleExport} disabled={exporting || orders.length === 0}>
             {exporting ? '⏳' : '📷'} 导出
           </button>
+          <button className="btn-outline-sm" onClick={() => setShowClear(true)} disabled={orders.length === 0} style={{color:'#dc2626',borderColor:'#fecaca'}}>🗑️ 清空</button>
           <div className="user-avatar">{user.email?.charAt(0).toUpperCase()}</div>
           <span className="user-email">{user.email?.split('@')[0]}</span>
           <button className="btn-outline-sm" onClick={handleLogout}>退出</button>
@@ -103,6 +106,70 @@ export default function Dashboard() {
       {showShare && <ShareModal orders={orders} user={user} onClose={() => setShowShare(false)} />}
       {/* 规则弹窗 */}
       {showRules && <RulesModal onClose={() => setShowRules(false)} />}
+      {/* 清空弹窗 */}
+      {showClear && <ClearModal user={user} onClose={() => setShowClear(false)} onCleared={() => { setOrders([]); setShowClear(false) }} />}
+    </div>
+  )
+}
+
+/* ========== 清空数据弹窗 ========== */
+function ClearModal({ user, onClose, onCleared }) {
+  const [step, setStep] = useState(0)
+  const [confirmText, setConfirmText] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleClear = async () => {
+    setDeleting(true)
+    setError('')
+    try {
+      const { error: err } = await supabase
+        .from('orders')
+        .delete()
+        .eq('user_id', user.id)
+      if (err) throw err
+      onCleared()
+    } catch (err) {
+      setError('清空失败：' + err.message)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-card" onClick={e => e.stopPropagation()} style={{maxWidth:400}}>
+        <button className="modal-close" onClick={onClose}>✕</button>
+        {step === 0 ? (
+          <>
+            <h3 style={{color:'#dc2626'}}>⚠️ 清空数据确认</h3>
+            <p className="modal-desc" style={{marginTop:8}}>
+              此操作将<strong style={{color:'#dc2626'}}>永久删除</strong>你账号下的全部订单数据（共 {user.ordersCount || '全部'} 条），无法恢复！
+            </p>
+            <p className="modal-desc">确认要继续吗？</p>
+            <div style={{display:'flex',gap:8,marginTop:16}}>
+              <button className="btn-ghost" onClick={onClose} style={{flex:1}}>取消</button>
+              <button className="btn-primary-sm" onClick={() => setStep(1)} style={{flex:1,background:'#dc2626'}}>确认清空</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <h3 style={{color:'#dc2626'}}>🗑️ 最后确认</h3>
+            <p className="modal-desc" style={{marginTop:8}}>输入 <strong>DELETE</strong> 确认清空所有数据</p>
+            <input placeholder='输入 DELETE 确认' className="filter-input" style={{width:'100%',marginBottom:12}}
+              value={confirmText} onChange={e => setConfirmText(e.target.value)} />
+            {confirmText === 'DELETE' && (
+              <>
+                {error && <div className="error-msg">{error}</div>}
+                <button className="btn-primary-sm" onClick={handleClear} disabled={deleting}
+                  style={{width:'100%',background:'#dc2626'}}>
+                  {deleting ? '⏳ 清空中...' : '✅ 确认清空全部数据'}
+                </button>
+              </>
+            )}
+          </>
+        )}
+      </div>
     </div>
   )
 }
