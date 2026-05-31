@@ -334,27 +334,38 @@ function DashboardView({ orders, loading, onRefresh }) {
   const [dateRange, setDateRange] = useState({ start: '', end: '' })
   const [filterCategory, setFilterCategory] = useState('')
   const [filterSupplier, setFilterSupplier] = useState('')
+  const [filterStore, setFilterStore] = useState('')
+  const [drillCat, setDrillCat] = useState('')
 
-  // 所有可用的品类和供应商
+  // 从 remark 提取店铺名
+  const parseStore = (remark) => {
+    if (!remark) return ''
+    const m = remark.match(/\[([^\]]+)\]/)
+    return m ? m[1] : ''
+  }
+  // 所有可用的品类、供应商、店铺
   const allCats = [...new Set(orders.map(o => o.product_category).filter(Boolean))]
   const allSups = [...new Set(orders.map(o => o.supplier).filter(Boolean))]
+  const allStores = [...new Set(orders.map(o => parseStore(o.remark)).filter(Boolean))]
 
   // 筛选后的数据
   const filtered = orders.filter(o => {
     if (filterCategory && o.product_category !== filterCategory) return false
     if (filterSupplier && o.supplier !== filterSupplier) return false
+    if (filterStore && parseStore(o.remark) !== filterStore) return false
     if (dateRange.start && o.order_date < dateRange.start) return false
     if (dateRange.end && o.order_date > dateRange.end) return false
     return true
   })
 
-  const hasFilter = filterCategory || filterSupplier || dateRange.start || dateRange.end
+  const hasFilter = filterCategory || filterSupplier || filterStore || dateRange.start || dateRange.end
 
   const total = filtered.length
   const totalQty = filtered.reduce((s, o) => s + o.quantity, 0)
   const totalAmt = filtered.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0)
   const urgentCount = filtered.filter(o => o.is_urgent).length
 
+  // 品类统计
   const catMap = {}
   filtered.forEach(o => {
     const cat = o.product_category || '未分类'
@@ -365,20 +376,51 @@ function DashboardView({ orders, loading, onRefresh }) {
   })
   const catSorted = Object.entries(catMap).sort((a, b) => b[1].qty - a[1].qty)
 
+  // 状态统计
   const statusMap = {}
   const statusLabel = { pending: '待处理', processing: '生产中', shipped: '已发货', completed: '已完成', cancelled: '已取消' }
   filtered.forEach(o => { statusMap[o.order_status] = (statusMap[o.order_status] || 0) + 1 })
 
+  // 供应商统计
   const supMap = {}
   filtered.forEach(o => { if (o.supplier) supMap[o.supplier] = (supMap[o.supplier] || 0) + o.quantity })
   const supSorted = Object.entries(supMap).sort((a, b) => b[1] - a[1])
 
+  // 店铺统计
+  const storeMap = {}
+  filtered.forEach(o => {
+    const s = parseStore(o.remark)
+    if (s) storeMap[s] = (storeMap[s] || 0) + o.quantity
+  })
+  const storeSorted = Object.entries(storeMap).sort((a, b) => b[1] - a[1])
+
+  // 环比计算
+  const getPeriodData = (orders, days) => {
+    const now = new Date()
+    const end = now.toISOString().split('T')[0]
+    const start = new Date(now.getTime() - days * 86400000).toISOString().split('T')[0]
+    const prevStart = new Date(now.getTime() - days * 2 * 86400000).toISOString().split('T')[0]
+    const cur = orders.filter(o => o.order_date >= start && o.order_date <= end)
+    const prev = orders.filter(o => o.order_date >= prevStart && o.order_date < start)
+    return {
+      curQty: cur.reduce((s, o) => s + o.quantity, 0),
+      prevQty: prev.reduce((s, o) => s + o.quantity, 0),
+      curOrders: cur.length,
+      prevOrders: prev.length,
+    }
+  }
+  const period7 = getPeriodData(orders, 7)
+  const orderChange = period7.prevOrders > 0 ? ((period7.curOrders - period7.prevOrders) / period7.prevOrders * 100).toFixed(0) : 0
+  const qtyChange = period7.prevQty > 0 ? ((period7.curQty - period7.prevQty) / period7.prevQty * 100).toFixed(0) : 0
+
+  // 近7天趋势
   const now = new Date()
   const dayMap = {}
   for (let i = 6; i >= 0; i--) { const d = new Date(now); d.setDate(d.getDate() - i); dayMap[d.toISOString().split('T')[0]] = 0 }
   filtered.forEach(o => { if (dayMap[o.order_date] !== undefined) dayMap[o.order_date]++ })
   const dayEntries = Object.entries(dayMap)
 
+  // 月度趋势
   const monthMap = {}
   filtered.forEach(o => {
     if (!o.order_date) return
@@ -386,7 +428,34 @@ function DashboardView({ orders, loading, onRefresh }) {
     monthMap[m] = (monthMap[m] || 0) + o.quantity
   })
 
-  const clearFilters = () => { setDateRange({ start: '', end: '' }); setFilterCategory(''); setFilterSupplier('') }
+  // 热力图数据（周几×周次）
+  const heatData = {}
+  filtered.forEach(o => {
+    if (!o.order_date) return
+    const d = new Date(o.order_date)
+    const dayOfWeek = d.getDay() // 0=周日
+    const weekNum = Math.floor((d.getTime() - new Date(d.getFullYear(), 0, 1).getTime()) / 604800000)
+    const key = `${dayOfWeek}-${weekNum}`
+    heatData[key] = (heatData[key] || 0) + o.quantity
+  })
+  const weekdays = ['周日','周一','周二','周三','周四','周五','周六']
+  const heatMax = Math.max(...Object.values(heatData), 1)
+
+  // 对比分析：可选两个时间段
+  const [compareMode, setCompareMode] = useState(false)
+  const [period1, setPeriod1] = useState({ start: '', end: '' })
+  const [period2, setPeriod2] = useState({ start: '', end: '' })
+  const getPeriodStats = (start, end) => {
+    const d = orders.filter(o => o.order_date >= start && o.order_date <= end)
+    return { total: d.length, qty: d.reduce((s, o) => s + o.quantity, 0), amt: d.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0) }
+  }
+
+  const clearFilters = () => { setDateRange({ start: '', end: '' }); setFilterCategory(''); setFilterSupplier(''); setFilterStore(''); setDrillCat('') }
+
+  const handleCatClick = (cat) => {
+    setFilterCategory(cat)
+    setActiveTab('table')
+  }
 
   return (
     <div className="dashboard-view">
@@ -414,6 +483,13 @@ function DashboardView({ orders, loading, onRefresh }) {
             {allSups.map(s => <option key={s}>{s}</option>)}
           </select>
         </div>
+        <div className="filter-group">
+          <label>店铺</label>
+          <select value={filterStore} onChange={e => setFilterStore(e.target.value)} className="filter-input">
+            <option value="">全部</option>
+            {allStores.map(s => <option key={s}>{s}</option>)}
+          </select>
+        </div>
         {hasFilter && (
           <button className="btn-clear" onClick={clearFilters}>✕ 清除筛选</button>
         )}
@@ -422,29 +498,31 @@ function DashboardView({ orders, loading, onRefresh }) {
 
       {/* KPI 卡片 */}
       <div className="kpi-row">
-        <div className="kpi-card"><div className="kpi-icon" style={{background:'#ede9fe',color:'#6d28d9'}}>📦</div><div><div className="kpi-num">{total}</div><div className="kpi-label">总订单</div></div></div>
-        <div className="kpi-card"><div className="kpi-icon" style={{background:'#dbeafe',color:'#2563eb'}}>📊</div><div><div className="kpi-num">{totalQty.toLocaleString()}</div><div className="kpi-label">总出库量</div></div></div>
+        <div className="kpi-card"><div className="kpi-icon" style={{background:'#ede9fe',color:'#6d28d9'}}>📦</div><div><div className="kpi-num">{total}</div><div className="kpi-label">总订单 <span className={`trend-arrow ${orderChange >= 0 ? 'up' : 'down'}`}>{orderChange >= 0 ? '↑' : '↓'}{Math.abs(orderChange)}%</span></div></div></div>
+        <div className="kpi-card"><div className="kpi-icon" style={{background:'#dbeafe',color:'#2563eb'}}>📊</div><div><div className="kpi-num">{totalQty.toLocaleString()}</div><div className="kpi-label">总出库量 <span className={`trend-arrow ${qtyChange >= 0 ? 'up' : 'down'}`}>{qtyChange >= 0 ? '↑' : '↓'}{Math.abs(qtyChange)}%</span></div></div></div>
         <div className="kpi-card"><div className="kpi-icon" style={{background:'#dcfce7',color:'#16a34a'}}>💰</div><div><div className="kpi-num">¥{totalAmt.toFixed(0)}</div><div className="kpi-label">总金额</div></div></div>
-        <div className="kpi-card"><div className="kpi-icon" style={{background:'#fef3c7',color:'#d97706'}}>⚡</div><div><div className="kpi-num">{urgentCount}</div><div className="kpi-label">加急单</div></div></div>
+        <div className="kpi-card"><div className="kpi-icon" style={{background:'#fef3c7',color:'#d97706'}}>⚡</div><div><div className="kpi-num">{urgentCount}</div><div className="kpi-label">加急单 / {total > 0 ? ((urgentCount/total)*100).toFixed(0) : 0}%</div></div></div>
         <div className="kpi-card"><div className="kpi-icon" style={{background:'#fce7f3',color:'#db2777'}}>🏷️</div><div><div className="kpi-num">{catSorted.length}</div><div className="kpi-label">品类数</div></div></div>
-        <div className="kpi-card action" onClick={onRefresh}><div className="kpi-icon" style={{background:'#f3e8ff',color:'#9333ea'}}>🔄</div><div><div className="kpi-num" style={{fontSize:14}}>刷新</div><div className="kpi-label">点击刷新</div></div></div>
+        <div className="kpi-card action" onClick={() => setCompareMode(!compareMode)}><div className="kpi-icon" style={{background:compareMode?'#fef3c7':'#f3e8ff',color:compareMode?'#d97706':'#9333ea'}}>📊</div><div><div className="kpi-num" style={{fontSize:14}}>{compareMode ? '关闭对比' : '对比分析'}</div><div className="kpi-label">选两段时间对比</div></div></div>
       </div>
 
       {/* Tab 导航 */}
       <div className="tab-bar">
         <button className={`tab-pill ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}>品类概览</button>
         <button className={`tab-pill ${activeTab === 'trend' ? 'active' : ''}`} onClick={() => setActiveTab('trend')}>趋势分析</button>
-        <button className={`tab-pill ${activeTab === 'supplier' ? 'active' : ''}`} onClick={() => setActiveTab('supplier')}>供应商分析</button>
-        <button className={`tab-pill ${activeTab === 'table' ? 'active' : ''}`} onClick={() => setActiveTab('table')}>数据明细</button>
-        <button className={`tab-pill ${activeTab === 'newproduct' ? 'active' : ''}`} onClick={() => setActiveTab('newproduct')}>✨ 新品追踪</button>
-        <button className={`tab-pill ${activeTab === 'ai' ? 'active' : ''}`} onClick={() => setActiveTab('ai')}>AI 洞察</button>
+        <button className={`tab-pill ${activeTab === 'heatmap' ? 'active' : ''}`} onClick={() => setActiveTab('heatmap')}>📅 热力图</button>
+        <button className={`tab-pill ${activeTab === 'store' ? 'active' : ''}`} onClick={() => setActiveTab('store')}>🏪 店铺</button>
+        <button className={`tab-pill ${activeTab === 'supplier' ? 'active' : ''}`} onClick={() => setActiveTab('supplier')}>供应商</button>
+        <button className={`tab-pill ${activeTab === 'table' ? 'active' : ''}`} onClick={() => setActiveTab('table')}>明细</button>
+        <button className={`tab-pill ${activeTab === 'newproduct' ? 'active' : ''}`} onClick={() => setActiveTab('newproduct')}>✨ 新品</button>
+        <button className={`tab-pill ${activeTab === 'ai' ? 'active' : ''}`} onClick={() => setActiveTab('ai')}>AI</button>
       </div>
 
       {activeTab === 'overview' && (
         <div className="tab-content">
           <div className="chart-row">
-            <div className="chart-card">
-              <div className="chart-title">品类出库排行</div>
+            <div className="chart-card clickable" onClick={() => catSorted.length > 0 && handleCatClick(catSorted[0][0])}>
+              <div className="chart-title">品类出库排行 <span className="chart-hint">点击查看明细</span></div>
               <div style={{height: catSorted.length > 0 ? Math.max(200, catSorted.length * 36) : 200}}>
                 <ReactECharts option={getBarOption(catSorted.map(([c]) => c), catSorted.map(([, v]) => v.qty), '#6366f1')} style={{height:'100%'}} opts={{renderer:'svg'}} />
               </div>
@@ -453,6 +531,13 @@ function DashboardView({ orders, loading, onRefresh }) {
               <div className="chart-title">品类占比</div>
               <ReactECharts option={getPieOption(catSorted.slice(0, 8).map(([c, v]) => ({name: c, value: v.qty})))} style={{height:260}} opts={{renderer:'svg'}} />
             </div>
+          </div>
+          {/* 环比卡片 */}
+          <div className="stats-grid">
+            <div className="stat-item"><span className="stat-l">近7天订单</span><span className="stat-v">{period7.curOrders} <span className={`trend-s ${orderChange>=0?'up':'down'}`}>{orderChange>=0?'↑':'↓'}{Math.abs(orderChange)}%</span></span></div>
+            <div className="stat-item"><span className="stat-l">近7天出库量</span><span className="stat-v">{period7.curQty} <span className={`trend-s ${qtyChange>=0?'up':'down'}`}>{qtyChange>=0?'↑':'↓'}{Math.abs(qtyChange)}%</span></span></div>
+            <div className="stat-item"><span className="stat-l">日均出库</span><span className="stat-v">{(totalQty/Math.max(1,now.getDate())).toFixed(1)}件</span></div>
+            <div className="stat-item"><span className="stat-l">客单价</span><span className="stat-v">¥{(totalAmt/Math.max(1,total)).toFixed(0)}</span></div>
           </div>
           {total === 0 && <div className="empty-state">📭 暂无数据，请先导入订单数据</div>}
         </div>
@@ -481,6 +566,61 @@ function DashboardView({ orders, loading, onRefresh }) {
         </div>
       )}
 
+      {activeTab === 'heatmap' && (
+        <div className="tab-content">
+          <div className="chart-card wide">
+            <div className="chart-title">📅 出库热力图 <span className="chart-hint">颜色越深 = 出库越多</span></div>
+            <div className="heatmap-container">
+              {Object.keys(heatData).length === 0 ? <div className="empty-sm">暂无数据</div> : (
+                <div className="heatmap-grid">
+                  {weekdays.map((day, di) => (
+                    <div key={di} className="heatmap-row">
+                      <span className="heatmap-label">{day}</span>
+                      {Array.from({length: 10}, (_, wi) => {
+                        const key = `${di}-${wi}`
+                        const val = heatData[key] || 0
+                        const intensity = val / heatMax
+                        return (
+                          <div key={wi} className="heatmap-cell" style={{
+                            background: val > 0 ? `rgba(99,102,241,${0.1 + intensity * 0.8})` : '#f8fafc',
+                            border: val > 0 ? '1px solid rgba(99,102,241,0.3)' : '1px solid #f1f5f9'
+                          }} title={`${day} 第${wi+1}周: ${val}件`}>
+                            <span style={{fontSize:10,color:val > 0 ? '#1e293b' : '#cbd5e1'}}>{val || ''}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="heatmap-legend">
+                <span>少</span>
+                <div className="hm-legend-bar"><div style={{background:'#f8fafc',flex:1}}></div><div style={{background:'rgba(99,102,241,0.2)',flex:1}}></div><div style={{background:'rgba(99,102,241,0.5)',flex:1}}></div><div style={{background:'rgba(99,102,241,0.8)',flex:1}}></div><div style={{background:'#6366f1',flex:1}}></div></div>
+                <span>多</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'store' && (
+        <div className="tab-content">
+          <div className="chart-row">
+            <div className="chart-card">
+              <div className="chart-title">店铺出库排行</div>
+              <div style={{height: storeSorted.length > 0 ? Math.max(200, storeSorted.length * 42) : 200}}>
+                <ReactECharts option={getBarOption(storeSorted.map(([s]) => s), storeSorted.map(([, v]) => v), '#f97316')} style={{height:'100%'}} opts={{renderer:'svg'}} />
+              </div>
+            </div>
+            <div className="chart-card">
+              <div className="chart-title">店铺占比</div>
+              <ReactECharts option={getPieOption(storeSorted.slice(0, 8).map(([s, v]) => ({name: s, value: v})))} style={{height:260}} opts={{renderer:'svg'}} />
+            </div>
+          </div>
+          {storeSorted.length === 0 && <div className="empty-state">📭 暂无店铺数据，导入马帮数据后自动显示</div>}
+        </div>
+      )}
+
       {activeTab === 'supplier' && (
         <div className="tab-content">
           <div className="chart-row">
@@ -503,6 +643,49 @@ function DashboardView({ orders, loading, onRefresh }) {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* 对比模式弹窗 */}
+      {compareMode && (
+        <div className="compare-panel">
+          <div className="compare-header">
+            <h4>📊 时间段对比</h4>
+            <button className="btn-outline-sm" onClick={() => setCompareMode(false)}>关闭</button>
+          </div>
+          <div className="compare-body">
+            <div className="compare-col">
+              <label>时间段1</label>
+              <div className="compare-inputs">
+                <input type="date" value={period1.start} onChange={e => setPeriod1(p => ({...p, start: e.target.value}))} className="filter-input" />
+                <span className="filter-sep">—</span>
+                <input type="date" value={period1.end} onChange={e => setPeriod1(p => ({...p, end: e.target.value}))} className="filter-input" />
+              </div>
+              {period1.start && period1.end && (() => {
+                const s = getPeriodStats(period1.start, period1.end)
+                return <div className="compare-stats"><div>📦 {s.total}单</div><div>📊 {s.qty}件</div><div>💰 ¥{s.amt.toFixed(0)}</div></div>
+              })()}
+            </div>
+            <div className="compare-vs">VS</div>
+            <div className="compare-col">
+              <label>时间段2</label>
+              <div className="compare-inputs">
+                <input type="date" value={period2.start} onChange={e => setPeriod2(p => ({...p, start: e.target.value}))} className="filter-input" />
+                <span className="filter-sep">—</span>
+                <input type="date" value={period2.end} onChange={e => setPeriod2(p => ({...p, end: e.target.value}))} className="filter-input" />
+              </div>
+              {period2.start && period2.end && (() => {
+                const s = getPeriodStats(period2.start, period2.end)
+                return <div className="compare-stats"><div>📦 {s.total}单</div><div>📊 {s.qty}件</div><div>💰 ¥{s.amt.toFixed(0)}</div></div>
+              })()}
+            </div>
+          </div>
+          {period1.start && period1.end && period2.start && period2.end && (() => {
+            const a = getPeriodStats(period1.start, period1.end)
+            const b = getPeriodStats(period2.start, period2.end)
+            const diff = b.total > 0 ? ((a.total - b.total) / b.total * 100).toFixed(0) : 0
+            return <div className="compare-result">📊 对比结果：时间段1 比 时间段2 <strong style={{color: diff >= 0 ? '#16a34a' : '#dc2626'}}>{diff >= 0 ? '↑' : '↓'}{Math.abs(diff)}%</strong></div>
+          })()}
         </div>
       )}
 
