@@ -129,21 +129,20 @@ function DataImport({ onImported }) {
       const keys = Object.keys(sample)
 
       // 检测是否为马帮导出格式（通过关键字段识别）
-      const isMabang = keys.some(k => ['订单编号','SKU','店铺名','订单商品名称','平台SKU数量','发货时间'].includes(k))
+      const isMabang = keys.some(k => ['订单编号','SKU','店铺名','订单商品名称','发货时间'].includes(k))
 
       let fieldMap
       if (isMabang) {
-        // 马帮格式专用映射
+        // 马帮格式专用映射（按你的最新要求）
         fieldMap = {
           order_no: '订单编号',
           store_name: '店铺名',
-          product_name: '订单商品名称',
-          quantity: '平台SKU数量',
-          order_date: '发货时间',
+          quantity: 'SKU总数量',
           country: '国家',
           province: '所属地区（省/州）',
-          city: '所属城市',
-          sku: 'SKU',
+          product_sku: 'SKU',
+          product_name: '订单商品名称',
+          order_date: '发货时间',
           is_mabang: true
         }
       } else {
@@ -153,12 +152,11 @@ function DataImport({ onImported }) {
           product_category: findKey(keys, ['品类','产品大类','分类','产品类别','category','Category']),
           product_name: findKey(keys, ['产品名称','产品名','商品名称','product_name','ProductName']),
           quantity: findKey(keys, ['数量','出库数量','出库量','qty','Qty','quantity','Quantity']),
-          total_amount: findKey(keys, ['金额','总金额','销售额','amount','Amount','total_amount']),
           order_date: findKey(keys, ['日期','下单日期','出库日期','date','Date','order_date']),
-          order_status: findKey(keys, ['状态','订单状态','status','Status']),
           supplier: findKey(keys, ['供应商','supplier','Supplier']),
           store_name: findKey(keys, ['店铺名','店铺','store','Store','store_name']),
           country: findKey(keys, ['国家','country','Country']),
+          product_sku: findKey(keys, ['SKU','sku','库存SKU']),
         }
       }
       setPreview({ rows: rows.slice(0, 5), total: rows.length, fieldMap, allRows: rows, keys, isMabang })
@@ -182,7 +180,6 @@ function DataImport({ onImported }) {
       // 马帮格式：需要按订单号聚合（一个订单多行SKU）
       let rowsToImport = preview.allRows
       if (isMabang) {
-        // 按订单号聚合，把同订单的商品名和数量合并
         const orderMap = {}
         preview.allRows.forEach(row => {
           const oid = String(row['订单编号'] || '')
@@ -193,32 +190,23 @@ function DataImport({ onImported }) {
               store_name: String(row['店铺名'] || ''),
               country: String(row['国家'] || ''),
               province: String(row['所属地区（省/州）'] || ''),
-              city: String(row['所属城市'] || ''),
               order_date: formatExcelDate(row['发货时间']),
-              skus: [],
-              totalQty: 0
+              totalQty: 0,
+              skuNames: []
             }
           }
-          const qty = parseInt(row['平台SKU数量']) || 1
-          orderMap[oid].skus.push({
-            name: String(row['订单商品名称'] || ''),
-            sku: String(row['SKU'] || ''),
-            qty
-          })
-          orderMap[oid].totalQty += qty
+          orderMap[oid].totalQty += parseInt(row['SKU总数量']) || 1
+          const sku = String(row['SKU'] || '')
+          const pname = String(row['订单商品名称'] || '')
+          if (sku) orderMap[oid].skuNames.push(`${pname}(${sku})`)
         })
-        // 转为导入行
-        rowsToImport = Object.values(orderMap).map(order => {
-          // 用智能分类从商品名推断品类
-          const topSku = order.skus.sort((a, b) => b.qty - a.qty)[0]
-          return {
-            ...order,
-            product_name: order.skus.map(s => `${s.name}(${s.sku})`).join('; '),
-            product_category: classifyProduct(topSku.name),
-            quantity: order.totalQty,
-            total_amount: 0,
-          }
-        })
+        rowsToImport = Object.values(orderMap).map(order => ({
+          ...order,
+          product_name: [...new Set(order.skuNames)].join('; '),
+          product_sku: [...new Set(order.skuNames.map(s => s.match(/\(([^)]+)\)/)?.[1] || '').filter(Boolean))].join(', '),
+          quantity: order.totalQty,
+          product_category: classifyProduct(order.skuNames[0] || ''),
+        }))
       }
 
       for (let i = 0; i < rowsToImport.length; i += 100) {
@@ -233,7 +221,6 @@ function DataImport({ onImported }) {
             product_category: row.product_category || (row.product_name ? classifyProduct(row.product_name) : '未分类'),
             product_name: row.product_name || '',
             quantity: row.quantity || 1,
-            total_amount: row.total_amount ? parseFloat(row.total_amount) : 0,
             order_date: row.order_date || new Date().toISOString().split('T')[0],
             order_status: 'completed',
             remark,
@@ -362,8 +349,6 @@ function DashboardView({ orders, loading, onRefresh }) {
 
   const total = filtered.length
   const totalQty = filtered.reduce((s, o) => s + o.quantity, 0)
-  const totalAmt = filtered.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0)
-  const urgentCount = filtered.filter(o => o.is_urgent).length
 
   // 品类统计
   const catMap = {}
@@ -385,6 +370,23 @@ function DashboardView({ orders, loading, onRefresh }) {
   const supMap = {}
   filtered.forEach(o => { if (o.supplier) supMap[o.supplier] = (supMap[o.supplier] || 0) + o.quantity })
   const supSorted = Object.entries(supMap).sort((a, b) => b[1] - a[1])
+
+  // 国家/地区统计
+  const parseMeta = (remark, key) => {
+    if (!remark) return ''
+    const m = remark.match(new RegExp(`\\[${key}:([^\\]]+)\\]`))
+    return m ? m[1] : ''
+  }
+  const countryMap = {}
+  const provinceMap = {}
+  filtered.forEach(o => {
+    const c = parseMeta(o.remark, '国家') || o.country || ''
+    const p = parseMeta(o.remark, '州') || o.province || ''
+    if (c) countryMap[c] = (countryMap[c] || 0) + o.quantity
+    if (p) provinceMap[p] = (provinceMap[p] || 0) + o.quantity
+  })
+  const countrySorted = Object.entries(countryMap).sort((a, b) => b[1] - a[1])
+  const provinceSorted = Object.entries(provinceMap).sort((a, b) => b[1] - a[1])
 
   // 店铺统计
   const storeMap = {}
@@ -500,9 +502,9 @@ function DashboardView({ orders, loading, onRefresh }) {
       <div className="kpi-row">
         <div className="kpi-card"><div className="kpi-icon" style={{background:'#ede9fe',color:'#6d28d9'}}>📦</div><div><div className="kpi-num">{total}</div><div className="kpi-label">总订单 <span className={`trend-arrow ${orderChange >= 0 ? 'up' : 'down'}`}>{orderChange >= 0 ? '↑' : '↓'}{Math.abs(orderChange)}%</span></div></div></div>
         <div className="kpi-card"><div className="kpi-icon" style={{background:'#dbeafe',color:'#2563eb'}}>📊</div><div><div className="kpi-num">{totalQty.toLocaleString()}</div><div className="kpi-label">总出库量 <span className={`trend-arrow ${qtyChange >= 0 ? 'up' : 'down'}`}>{qtyChange >= 0 ? '↑' : '↓'}{Math.abs(qtyChange)}%</span></div></div></div>
-        <div className="kpi-card"><div className="kpi-icon" style={{background:'#dcfce7',color:'#16a34a'}}>💰</div><div><div className="kpi-num">¥{totalAmt.toFixed(0)}</div><div className="kpi-label">总金额</div></div></div>
-        <div className="kpi-card"><div className="kpi-icon" style={{background:'#fef3c7',color:'#d97706'}}>⚡</div><div><div className="kpi-num">{urgentCount}</div><div className="kpi-label">加急单 / {total > 0 ? ((urgentCount/total)*100).toFixed(0) : 0}%</div></div></div>
         <div className="kpi-card"><div className="kpi-icon" style={{background:'#fce7f3',color:'#db2777'}}>🏷️</div><div><div className="kpi-num">{catSorted.length}</div><div className="kpi-label">品类数</div></div></div>
+        <div className="kpi-card"><div className="kpi-icon" style={{background:'#fef3c7',color:'#d97706'}}>🌍</div><div><div className="kpi-num">{countrySorted.length}</div><div className="kpi-label">覆盖国家</div></div></div>
+        <div className="kpi-card"><div className="kpi-icon" style={{background:'#e0f2fe',color:'#0284c7'}}>🏪</div><div><div className="kpi-num">{storeSorted.length}</div><div className="kpi-label">店铺数</div></div></div>
         <div className="kpi-card action" onClick={() => setCompareMode(!compareMode)}><div className="kpi-icon" style={{background:compareMode?'#fef3c7':'#f3e8ff',color:compareMode?'#d97706':'#9333ea'}}>📊</div><div><div className="kpi-num" style={{fontSize:14}}>{compareMode ? '关闭对比' : '对比分析'}</div><div className="kpi-label">选两段时间对比</div></div></div>
       </div>
 
@@ -512,6 +514,7 @@ function DashboardView({ orders, loading, onRefresh }) {
         <button className={`tab-pill ${activeTab === 'trend' ? 'active' : ''}`} onClick={() => setActiveTab('trend')}>趋势分析</button>
         <button className={`tab-pill ${activeTab === 'heatmap' ? 'active' : ''}`} onClick={() => setActiveTab('heatmap')}>📅 热力图</button>
         <button className={`tab-pill ${activeTab === 'store' ? 'active' : ''}`} onClick={() => setActiveTab('store')}>🏪 店铺</button>
+        <button className={`tab-pill ${activeTab === 'country' ? 'active' : ''}`} onClick={() => setActiveTab('country')}>🌍 国家</button>
         <button className={`tab-pill ${activeTab === 'supplier' ? 'active' : ''}`} onClick={() => setActiveTab('supplier')}>供应商</button>
         <button className={`tab-pill ${activeTab === 'table' ? 'active' : ''}`} onClick={() => setActiveTab('table')}>明细</button>
         <button className={`tab-pill ${activeTab === 'newproduct' ? 'active' : ''}`} onClick={() => setActiveTab('newproduct')}>✨ 新品</button>
@@ -537,7 +540,7 @@ function DashboardView({ orders, loading, onRefresh }) {
             <div className="stat-item"><span className="stat-l">近7天订单</span><span className="stat-v">{period7.curOrders} <span className={`trend-s ${orderChange>=0?'up':'down'}`}>{orderChange>=0?'↑':'↓'}{Math.abs(orderChange)}%</span></span></div>
             <div className="stat-item"><span className="stat-l">近7天出库量</span><span className="stat-v">{period7.curQty} <span className={`trend-s ${qtyChange>=0?'up':'down'}`}>{qtyChange>=0?'↑':'↓'}{Math.abs(qtyChange)}%</span></span></div>
             <div className="stat-item"><span className="stat-l">日均出库</span><span className="stat-v">{(totalQty/Math.max(1,now.getDate())).toFixed(1)}件</span></div>
-            <div className="stat-item"><span className="stat-l">客单价</span><span className="stat-v">¥{(totalAmt/Math.max(1,total)).toFixed(0)}</span></div>
+            <div className="stat-item"><span className="stat-l">完成率</span><span className="stat-v">{(((statusMap['completed']||0) / Math.max(1, total)) * 100).toFixed(0)}%</span></div>
           </div>
           {total === 0 && <div className="empty-state">📭 暂无数据，请先导入订单数据</div>}
         </div>
@@ -559,8 +562,6 @@ function DashboardView({ orders, loading, onRefresh }) {
           )}
           <div className="stats-grid">
             <div className="stat-item"><span className="stat-l">日均出库</span><span className="stat-v">{(totalQty / Math.max(1, now.getDate())).toFixed(1)}件</span></div>
-            <div className="stat-item"><span className="stat-l">客单价</span><span className="stat-v">¥{(totalAmt / Math.max(1, total)).toFixed(0)}</span></div>
-            <div className="stat-item"><span className="stat-l">加急占比</span><span className="stat-v">{((urgentCount / Math.max(1, total)) * 100).toFixed(1)}%</span></div>
             <div className="stat-item"><span className="stat-l">完成率</span><span className="stat-v">{(((statusMap['completed']||0) / Math.max(1, total)) * 100).toFixed(0)}%</span></div>
           </div>
         </div>
@@ -636,13 +637,40 @@ function DashboardView({ orders, loading, onRefresh }) {
             </div>
           </div>
           <div className="chart-card wide">
-            <div className="chart-title">加急 vs 常规</div>
+            <div className="chart-title">完成率</div>
             {total > 0 && (
               <div className="split-bar-container">
-                <div className="split-bar"><div className="split-seg urgent-seg" style={{flex:urgentCount}}>⚡加急 {urgentCount}</div><div className="split-seg normal-seg" style={{flex:total-urgentCount}}>📦常规 {total-urgentCount}</div></div>
+                <div className="split-bar"><div className="split-seg" style={{flex:(statusMap['completed']||0),background:'#10b981'}}>✅完成 {(statusMap['completed']||0)}</div><div className="split-seg" style={{flex:total-(statusMap['completed']||0),background:'#94a3b8'}}>⏳进行中 {total-(statusMap['completed']||0)}</div></div>
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {activeTab === 'country' && (
+        <div className="tab-content">
+          <div className="chart-row">
+            <div className="chart-card">
+              <div className="chart-title">🌍 国家出库排名</div>
+              <div style={{height: countrySorted.length > 0 ? Math.max(200, countrySorted.length * 36) : 200}}>
+                <ReactECharts option={getBarOption(countrySorted.map(([c]) => c), countrySorted.map(([, v]) => v), '#f97316')} style={{height:'100%'}} opts={{renderer:'svg'}} />
+              </div>
+            </div>
+            <div className="chart-card">
+              <div className="chart-title">国家分布占比</div>
+              <ReactECharts option={getPieOption(countrySorted.slice(0, 8).map(([c, v]) => ({name: c, value: v})))} style={{height:260}} opts={{renderer:'svg'}} />
+            </div>
+          </div>
+          {provinceSorted.length > 0 && (
+            <div className="chart-card wide">
+              <div className="chart-title">偏远地区分布（州/省）</div>
+              <p className="chart-hint" style={{marginBottom:12}}>TOP 15 州/省出库量，分析是否为偏远地区</p>
+              <div style={{height: Math.max(200, provinceSorted.slice(0, 15).length * 36)}}>
+                <ReactECharts option={getBarOption(provinceSorted.slice(0, 15).map(([p]) => p), provinceSorted.slice(0, 15).map(([, v]) => v), '#ef4444')} style={{height:'100%'}} opts={{renderer:'svg'}} />
+              </div>
+            </div>
+          )}
+          {countrySorted.length === 0 && <div className="empty-state">📭 暂无国家数据，导入马帮数据后自动显示</div>}
         </div>
       )}
 
@@ -749,7 +777,6 @@ function NewProductTracker({ orders, allOrders }) {
     // 上线前的数据（如果有的话，说明不是新品）
     const beforeLaunch = matched.filter(o => o.order_date < prod.launchDate)
     const totalQty = afterLaunch.reduce((s, o) => s + o.quantity, 0)
-    const totalAmt = afterLaunch.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0)
     // 每日趋势
     const dayMap = {}
     afterLaunch.sort((a, b) => a.order_date.localeCompare(b.order_date)).forEach(o => {
@@ -757,7 +784,6 @@ function NewProductTracker({ orders, allOrders }) {
     })
     return {
       totalQty,
-      totalAmt,
       orderCount: afterLaunch.length,
       daysOnMarket: Object.keys(dayMap).length,
       dailyAvg: Object.keys(dayMap).length > 0 ? (totalQty / Object.keys(dayMap).length).toFixed(1) : 0,
@@ -803,7 +829,6 @@ function NewProductTracker({ orders, allOrders }) {
                 <div className="tracker-stats">
                   <div className="ts-item"><span className="ts-num">{data.orderCount}</span><span className="ts-label">订单数</span></div>
                   <div className="ts-item"><span className="ts-num">{data.totalQty}</span><span className="ts-label">出库量</span></div>
-                  <div className="ts-item"><span className="ts-num">¥{data.totalAmt.toFixed(0)}</span><span className="ts-label">销售额</span></div>
                   <div className="ts-item"><span className="ts-num">{data.dailyAvg}</span><span className="ts-label">日均出库</span></div>
                 </div>
                 {data.trend.length > 0 && (
@@ -951,18 +976,17 @@ function OrderTable({ orders, loading, onRefresh }) {
       <div className="table-wrap">
         {loading ? <div className="empty-state">加载中...</div> : filtered.length === 0 ? <div className="empty-state">暂无数据</div> : (
           <table className="order-table">
-            <thead><tr><th>订单号</th><th>品类</th><th>产品</th><th>数量</th><th>金额</th><th>状态</th><th>供应商</th><th>日期</th><th>加急</th></tr></thead>
+            <thead><tr><th>订单号</th><th>品类</th><th>产品</th><th>库存SKU</th><th>数量</th><th>供应商</th><th>国家</th><th>日期</th></tr></thead>
             <tbody>{filtered.map(o => (
               <tr key={o.id}>
                 <td><span className="orderno">{o.order_no}</span></td>
                 <td><span className="cat-tag">{o.product_category}</span></td>
                 <td>{o.product_name}</td>
+                <td>{o.product_sku || '-'}</td>
                 <td>{o.quantity}</td>
-                <td>¥{o.total_amount}</td>
-                <td><span className="status-tag" style={{background:statusColor[o.order_status]}}>{statusLabel[o.order_status]}</span></td>
                 <td>{o.supplier || '-'}</td>
+                <td>{parseMeta(o.remark, '国家') || '-'}</td>
                 <td>{o.order_date}</td>
-                <td>{o.is_urgent ? '⚡' : '-'}</td>
               </tr>
             ))}</tbody>
           </table>
@@ -1067,6 +1091,10 @@ function RulesModal({ onClose }) {
 }
 
 /* ========== 工具函数 ========== */
+function parseMeta(remark, key) {
+  if (!remark) return ''
+  const m = remark.match(new RegExp(`\\[${key}:([^\\]]+)\\]`))
+  return m ? m[1] : ''
+}
 function findKey(keys, candidates) { for (const c of candidates) { const f = keys.find(k => k.toLowerCase().includes(c.toLowerCase())); if (f) return f } return null }
 function formatExcelDate(val) { if (!val) return new Date().toISOString().split('T')[0]; if (typeof val === 'number') { const d = new Date((val - 25569) * 86400 * 1000); return d.toISOString().split('T')[0] }; const d = new Date(val); return !isNaN(d.getTime()) ? d.toISOString().split('T')[0] : String(val) }
-function mapStatus(s) { const map = { '待处理':'pending','pending':'pending','生产中':'processing','processing':'processing','已发货':'shipped','shipped':'shipped','已完成':'completed','completed':'completed','已取消':'cancelled','cancelled':'cancelled' }; return map[s.toLowerCase()] || 'pending' }
