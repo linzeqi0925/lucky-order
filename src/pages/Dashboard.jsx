@@ -6,6 +6,7 @@ import { loadRules, saveRules, classifyProduct } from '../lib/classifier'
 import * as XLSX from 'xlsx'
 import ReactECharts from 'echarts-for-react'
 import html2canvas from 'html2canvas'
+import CountryMap from '../components/CountryMap'
 
 export default function Dashboard() {
   const [user, setUser] = useState(null)
@@ -751,6 +752,11 @@ function DashboardView({ orders, loading, onRefresh }) {
             </div>
           )}
         </div>
+      </div>
+
+      {/* 全球地图 */}
+      <div className="v2-map-section">
+        <CountryMap orders={filtered} filters={dateRange} />
       </div>
 
       {/* ===== 第三屏：趋势 ===== */}

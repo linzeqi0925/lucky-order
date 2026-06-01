@@ -347,6 +347,49 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica
 .monitor-detail { font-size:11px; color:var(--text3) }
 .monitor-empty { font-size:13px; color:var(--text3); padding:8px 0 }
 
+/* ===== 国家地图 ===== */
+.v2-map-section { background:var(--card); border-radius:var(--radius); padding:18px; box-shadow:var(--shadow); border:1px solid var(--border) }
+.country-map-module { display:flex; flex-direction:column; gap:12px }
+.map-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px }
+.map-header h4 { font-size:15px; font-weight:600 }
+.map-subtitle { font-size:11px; color:var(--text3) }
+.map-container { border-radius:8px; border:1px solid #f1f5f9; overflow:hidden; flex:1 }
+.map-ranks { margin-top:4px }
+.map-ranks h4 { font-size:13px; font-weight:600; margin-bottom:8px }
+.map-rank-list { display:grid; grid-template-columns:repeat(2,1fr); gap:4px }
+.map-rank-item { display:flex; align-items:center; gap:6px; padding:6px 10px; border-radius:6px; cursor:pointer; transition:var(--transition); font-size:12px }
+.map-rank-item:hover { background:#f1f5f9 }
+.map-rank-item.active { background:#ede9fe; outline:2px solid #6366f1 }
+.mr-idx { width:16px; font-weight:700; color:var(--text3); font-size:10px; text-align:center }
+.mr-flag { font-size:14px }
+.mr-name { width:80px; flex-shrink:0; font-weight:500; color:var(--text); overflow:hidden; text-overflow:ellipsis }
+.mr-bar-track { flex:1; height:8px; background:#f1f5f9; border-radius:4px; overflow:hidden }
+.mr-bar { height:100%; border-radius:4px; min-width:4px; transition:width .4s ease }
+.mr-pct { width:36px; text-align:right; font-weight:600; color:var(--text2); font-size:11px }
+.map-rank-more { text-align:center; color:var(--text3); font-size:11px; padding:8px }
+
+/* 国家详情弹窗 */
+.country-detail-header { margin-bottom:16px }
+.country-detail-header h3 { font-size:20px; font-weight:700; margin-bottom:12px }
+.cd-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:8px }
+.cd-stat { text-align:center; background:#f8fafc; border-radius:8px; padding:10px }
+.cd-num { display:block; font-size:16px; font-weight:700; color:var(--text) }
+.cd-num.up { color:#16a34a }
+.cd-num.down { color:#dc2626 }
+.cd-label { display:block; font-size:11px; color:var(--text3); margin-top:2px }
+.cd-section { margin-bottom:16px }
+.cd-section h4 { font-size:14px; font-weight:600; margin-bottom:8px }
+.cd-sku-list { display:flex; flex-direction:column; gap:3px; max-height:300px; overflow-y:auto }
+.cd-sku-item { display:flex; align-items:center; gap:8px; padding:5px 8px; background:#f8fafc; border-radius:6px; font-size:12px }
+.cd-sku-idx { width:18px; font-weight:700; color:var(--text3); font-size:10px }
+.cd-sku-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.cd-sku-val { font-weight:600; color:var(--text) }
+.cd-ai-section { background:linear-gradient(135deg,#f0f9ff,#e0f2fe); border:1px solid #bae6fd; border-radius:10px; padding:14px; margin-top:8px }
+.cd-ai-section h4 { font-size:13px; font-weight:600; margin-bottom:6px }
+.cd-ai-text { font-size:13px; line-height:1.8; color:#1e293b }
+.cd-ai-text .up { color:#16a34a; font-weight:600 }
+.cd-ai-text .down { color:#dc2626; font-weight:600 }
+
 /* ===== 热力图 ===== */
 .heatmap-container { padding:12px 0 }
 .heatmap-grid { display:flex; flex-direction:column; gap:4px }
