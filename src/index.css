@@ -483,6 +483,7 @@ body {
 .mr-bar-track{flex:1;height:8px;background:#f1f5f9;border-radius:6px;overflow:hidden}
 .mr-bar{height:100%;border-radius:6px;min-width:4px;transition:width .5s ease}
 .mr-pct{width:40px;text-align:right;font-weight:600;color:var(--text2);font-size:11px}
+.mr-qty{font-size:11px;color:var(--text3);width:50px;text-align:right}
 
 .country-detail-header{margin-bottom:16px}
 .country-detail-header h3{font-size:22px;font-weight:700;margin-bottom:14px;letter-spacing:-.5px}

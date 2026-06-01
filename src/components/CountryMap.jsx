@@ -1,113 +1,142 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import ReactECharts from 'echarts-for-react'
 import * as echarts from 'echarts'
-import { getMapData } from '../lib/worldmap'
+import { getCoords } from '../lib/worldmap'
 
 const COLORS = ['#6366f1','#8b5cf6','#a855f7','#ec4899','#f43f5e','#f97316','#eab308','#10b981','#06b6d4','#3b82f6']
+
+// 中文→英文国家名映射（供 ECharts world.json 使用）
+const CN_TO_EN = {
+  '美国':'United States','英国':'United Kingdom','加拿大':'Canada','德国':'Germany',
+  '法国':'France','澳大利亚':'Australia','日本':'Japan','韩国':'South Korea',
+  '意大利':'Italy','西班牙':'Spain','荷兰':'Netherlands','巴西':'Brazil',
+  '墨西哥':'Mexico','新加坡':'Singapore','印度':'India','新西兰':'New Zealand',
+  '瑞典':'Sweden','瑞士':'Switzerland','挪威':'Norway','丹麦':'Denmark',
+  '波兰':'Poland','俄罗斯':'Russia','泰国':'Thailand','越南':'Vietnam',
+  '马来西亚':'Malaysia','菲律宾':'Philippines','印度尼西亚':'Indonesia',
+  '土耳其':'Turkey','沙特阿拉伯':'Saudi Arabia','阿联酋':'United Arab Emirates',
+  '爱尔兰':'Ireland','奥地利':'Austria','比利时':'Belgium','葡萄牙':'Portugal',
+  '捷克':'Czech Rep.','希腊':'Greece','匈牙利':'Hungary','芬兰':'Finland',
+  '罗马尼亚':'Romania','乌克兰':'Ukraine','以色列':'Israel','南非':'South Africa',
+  '阿根廷':'Argentina','哥伦比亚':'Colombia','埃及':'Egypt','中国':'China',
+  '台湾':'Taiwan','香港':'Hong Kong',
+}
 
 export default function CountryMap({ orders }) {
   const [selectedCountry, setSelectedCountry] = useState(null)
   const [mapLoaded, setMapLoaded] = useState(false)
+  const chartRef = useRef(null)
 
-  // 加载世界地图 GeoJSON
+  // 加载 ECharts 官方世界地图
   useEffect(() => {
-    fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json')
+    fetch('https://unpkg.com/echarts@5.5.0/map/json/world.json')
       .then(r => r.json())
       .then(data => {
-        // Convert topojson to geojson
-        const { features } = data.objects.countries
-        echarts.registerMap('world', { features, type: 'FeatureCollection' })
+        echarts.registerMap('world', data)
         setMapLoaded(true)
       })
       .catch(() => {
-        // Fallback: 空地图
-        setMapLoaded(true)
+        // 如果网络不行，用备用 CDN
+        fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json')
+          .then(r => r.json())
+          .then(topojson => {
+            const { features } = topojson.objects.countries
+            echarts.registerMap('world', { features, type: 'FeatureCollection' })
+            setMapLoaded(true)
+          })
+          .catch(() => setMapLoaded(true))
       })
   }, [])
 
-  // 国家统计数据
+  // 统计数据
   const countryStats = useMemo(() => {
     const qtyMap = {}
     const amtMap = {}
     let totalQty = 0
-    let totalAmt = 0
     orders.forEach(o => {
       const c = o.country || '未知'
       qtyMap[c] = (qtyMap[c] || 0) + o.quantity
       amtMap[c] = (amtMap[c] || 0) + parseFloat(o.total_amount || 0)
       totalQty += o.quantity
-      totalAmt += parseFloat(o.total_amount || 0)
     })
-    const entries = Object.entries(qtyMap).sort((a, b) => b[1] - a[1])
-    return { qtyMap, amtMap, entries, totalQty, totalAmt }
+    return { qtyMap, amtMap, entries: Object.entries(qtyMap).sort((a, b) => b[1] - a[1]), totalQty }
   }, [orders])
 
-  // 地图散点图配置
+  // 地图选项
   const mapOption = useMemo(() => {
-    const data = getMapData(countryStats.qtyMap, countryStats.amtMap)
-    const maxVal = Math.max(...data.map(d => d.value[2]), 1)
+    if (!mapLoaded) return {}
+    const maxVal = Math.max(...Object.values(countryStats.qtyMap), 1)
+    // 散点数据：用英文名匹配地图特征
+    const scatterData = Object.entries(countryStats.qtyMap).map(([cn, qty]) => {
+      const en = CN_TO_EN[cn] || cn
+      const coords = getCoords(cn)
+      if (!coords) return null
+      return { name: en, cnName: cn, value: [...coords, qty], amount: countryStats.amtMap[cn] || 0 }
+    }).filter(Boolean)
+
     return {
       tooltip: {
         trigger: 'item',
         formatter: (params) => {
-          const d = params.data
-          if (!d) return ''
-          const pct = ((d.value[2] / Math.max(1, countryStats.totalQty)) * 100).toFixed(1)
-          return `<strong>${d.name}</strong><br/>
-            📦 订单量：${d.value[2].toLocaleString()} 件<br/>
-            💰 销售额：¥${(d.amount || 0).toLocaleString()}<br/>
+          const d = params.data || params
+          const name = d.cnName || d.name || ''
+          const val = d.value?.[2] || 0
+          const amt = d.amount || 0
+          const pct = ((val / Math.max(1, countryStats.totalQty)) * 100).toFixed(1)
+          return `<strong>${name}</strong><br/>
+            📦 订单量：${val.toLocaleString()} 件<br/>
+            💰 销售额：¥${amt.toLocaleString()}<br/>
             📊 占比：${pct}%`
         }
       },
       visualMap: {
-        min: 0,
-        max: maxVal,
-        text: ['多', '少'],
-        textStyle: { color: '#64748b' },
-        inRange: { color: ['#e0e7ff', '#818cf8', '#4f46e5', '#3730a3'] },
-        calculable: true,
-        left: 20,
-        bottom: 20,
+        min: 0, max: maxVal,
+        text: ['多','少'], textStyle: { color: '#64748b', fontSize: 11 },
+        inRange: { color: ['#e0e7ff','#818cf8','#4f46e5','#3730a3'] },
+        calculable: true, left: 20, bottom: 20,
       },
       geo: {
-        map: 'world',
-        roam: true,
+        map: 'world', roam: true,
         label: { show: false },
         itemStyle: {
-          areaColor: '#f1f5f9',
-          borderColor: '#e2e8f0',
-          borderWidth: 0.5,
+          areaColor: '#f1f5f9', borderColor: '#cbd5e1', borderWidth: 0.5,
         },
         emphasis: {
-          itemStyle: { areaColor: '#cbd5e1' },
+          itemStyle: { areaColor: '#dbeafe' },
           label: { show: true, fontSize: 11, color: '#0f172a' },
         },
       },
       series: [{
         type: 'scatter',
         coordinateSystem: 'geo',
-        data: data,
-        symbolSize: (val) => Math.max(6, Math.sqrt(val[2] / Math.max(1, maxVal)) * 40),
+        data: scatterData,
+        symbolSize: (val) => Math.max(8, Math.sqrt(val[2] / Math.max(1, maxVal)) * 40),
         encode: { value: 2 },
         label: {
           show: true,
-          formatter: (params) => params.data.name,
-          fontSize: 10,
-          color: '#0f172a',
+          formatter: (p) => p.data.cnName,
+          fontSize: 11, color: '#0f172a', fontWeight: 600,
           position: 'right',
         },
         emphasis: {
-          label: { show: true, fontSize: 12, fontWeight: 'bold', color: '#4f46e5' },
-          itemStyle: { shadowBlur: 10, shadowColor: 'rgba(99,102,241,0.4)' },
+          label: { show: true, fontSize: 13, fontWeight: 'bold', color: '#4f46e5' },
+          itemStyle: { shadowBlur: 10, shadowColor: 'rgba(99,102,241,0.5)', borderColor: '#fff', borderWidth: 2 },
         },
-        itemStyle: {
-          color: '#6366f1',
-          shadowBlur: 4,
-          shadowColor: 'rgba(99,102,241,0.2)',
-        },
+        itemStyle: { color: '#6366f1', shadowBlur: 6, shadowColor: 'rgba(99,102,241,0.3)' },
       }],
     }
-  }, [countryStats])
+  }, [mapLoaded, countryStats])
+
+  const handleMapClick = (params) => {
+    if (params.data?.cnName) {
+      const name = params.data.cnName
+      setSelectedCountry({
+        name,
+        qty: countryStats.qtyMap[name] || 0,
+        amt: countryStats.amtMap[name] || 0,
+      })
+    }
+  }
 
   return (
     <div className="country-map-module">
@@ -117,24 +146,16 @@ export default function CountryMap({ orders }) {
       </div>
 
       <div className="map-container">
-        <ReactECharts
-          option={mapOption}
-          style={{ height: 420 }}
-          opts={{ renderer: 'svg' }}
-          onEvents={{
-            click: (params) => {
-              if (params.data?.name) {
-                const name = params.data.name
-                const qty = countryStats.qtyMap[name] || 0
-                const amt = countryStats.amtMap[name] || 0
-                setSelectedCountry({ name, qty, amt })
-              }
-            }
-          }}
-        />
+        {!mapLoaded ? (
+          <div className="empty-sm" style={{height:400,display:'flex',alignItems:'center',justifyContent:'center'}}>⏳ 加载地图中...</div>
+        ) : (
+          <ReactECharts ref={chartRef} option={mapOption} style={{height:440}}
+            opts={{renderer:'canvas'}}
+            onEvents={{ click: handleMapClick }} />
+        )}
       </div>
 
-      {/* 国家排行侧栏 */}
+      {/* 国家排行 */}
       <div className="map-ranks">
         <h4>国家排行 TOP 10</h4>
         <div className="map-rank-list">
@@ -151,22 +172,19 @@ export default function CountryMap({ orders }) {
                   <div className="mr-bar" style={{ width: `${pct}%`, background: COLORS[i % COLORS.length] }} />
                 </div>
                 <span className="mr-pct">{pct}%</span>
+                <span className="mr-qty">{qty.toLocaleString()}</span>
               </div>
             )
           })}
         </div>
       </div>
 
-      {/* 国家详情弹窗 */}
       {selectedCountry && (
         <CountryDetailModal
-          country={selectedCountry.name}
-          orders={orders}
-          qty={selectedCountry.qty}
-          amt={selectedCountry.amt}
+          country={selectedCountry.name} orders={orders}
+          qty={selectedCountry.qty} amt={selectedCountry.amt}
           totalQty={countryStats.totalQty}
-          onClose={() => setSelectedCountry(null)}
-        />
+          onClose={() => setSelectedCountry(null)} />
       )}
     </div>
   )
@@ -178,19 +196,16 @@ function CountryDetailModal({ country, orders, qty, amt, totalQty, onClose }) {
   const pct = ((qty / Math.max(1, totalQty)) * 100).toFixed(1)
   const avgPrice = qty > 0 ? (amt / qty).toFixed(0) : 0
 
-  // 近30天趋势
   const now = new Date()
   const dayMap = {}
   for (let i = 29; i >= 0; i--) { const d = new Date(now); d.setDate(d.getDate() - i); dayMap[d.toISOString().split('T')[0]] = 0 }
   countryOrders.forEach(o => { if (dayMap[o.order_date] !== undefined) dayMap[o.order_date] += o.quantity })
   const dayEntries = Object.entries(dayMap)
 
-  // 前30天对比
   const last30 = dayEntries.slice(-30).reduce((s, [, v]) => s + v, 0)
   const prev30 = dayEntries.slice(0, 30).reduce((s, [, v]) => s + v, 0)
   const growth = prev30 > 0 ? ((last30 - prev30) / prev30 * 100).toFixed(1) : 0
 
-  // 品类分布
   const catMap = {}
   countryOrders.forEach(o => {
     const cat = o.product_category || '未分类'
@@ -198,7 +213,6 @@ function CountryDetailModal({ country, orders, qty, amt, totalQty, onClose }) {
   })
   const catSorted = Object.entries(catMap).sort((a, b) => b[1] - a[1])
 
-  // SKU排行
   const skuMap = {}
   countryOrders.forEach(o => {
     const sku = o.product_sku || o.product_name || '未知'
@@ -206,15 +220,13 @@ function CountryDetailModal({ country, orders, qty, amt, totalQty, onClose }) {
   })
   const skuSorted = Object.entries(skuMap).sort((a, b) => b[1] - a[1]).slice(0, 20)
 
-  // AI分析文本
   const topCat = catSorted[0]
-  const catDropNote = growth < -5 ? `下降主要来自${topCat?.[0] || '部分'}品类` : ''
+  const catDropNote = growth < -5 ? `下降主要来自${topCat?.[0] || '部分'}品类。` : ''
 
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-card modal-wide" onClick={e => e.stopPropagation()}>
         <button className="modal-close" onClick={onClose}>✕</button>
-
         <div className="country-detail-header">
           <h3>🌍 {country}</h3>
           <div className="cd-stats">
@@ -225,7 +237,6 @@ function CountryDetailModal({ country, orders, qty, amt, totalQty, onClose }) {
           </div>
         </div>
 
-        {/* 近30天趋势 */}
         <div className="cd-section">
           <h4>近30天订单趋势</h4>
           <ReactECharts option={{
@@ -240,20 +251,17 @@ function CountryDetailModal({ country, orders, qty, amt, totalQty, onClose }) {
           }} style={{ height: 200 }} opts={{ renderer: 'svg' }} />
         </div>
 
-        {/* 品类分布 */}
         <div className="cd-section">
           <h4>品类分布</h4>
           <ReactECharts option={{
             tooltip: { trigger: 'item', formatter: '{b}: {c}件 ({d}%)' },
-            series: [{
-              type: 'pie', radius: ['30%', '55%'],
+            series: [{ type: 'pie', radius: ['30%', '55%'],
               data: catSorted.map(([c, v], i) => ({ name: c, value: v, itemStyle: { color: COLORS[i % COLORS.length] } })),
               label: { fontSize: 11, formatter: '{b}\n{d}%' },
             }]
           }} style={{ height: 220 }} opts={{ renderer: 'svg' }} />
         </div>
 
-        {/* SKU排行 */}
         <div className="cd-section">
           <h4>SKU排行 TOP 20</h4>
           <div className="cd-sku-list">
@@ -267,7 +275,6 @@ function CountryDetailModal({ country, orders, qty, amt, totalQty, onClose }) {
           </div>
         </div>
 
-        {/* AI分析 */}
         <div className="cd-ai-section">
           <h4>🧠 AI 分析</h4>
           <p className="cd-ai-text">
