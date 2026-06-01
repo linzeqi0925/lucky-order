@@ -267,6 +267,57 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica
 .ts-label { display:block; font-size:11px; color:var(--text3); margin-top:2px }
 .tracker-chart { background:#fafbfc; border-radius:8px; padding:8px; border:1px solid #f1f5f9 }
 
+/* ===== V2 驾驶舱样式 ===== */
+.v2-kpi-section, .v2-ai-section, .v2-trend-section, .v2-monitor-section {
+  background:var(--card); border-radius:var(--radius); padding:18px; box-shadow:var(--shadow); border:1px solid var(--border)
+}
+.section-badge { font-size:13px; font-weight:600; color:var(--primary); display:inline-block; margin-bottom:12px }
+.v2-kpi-header, .v2-ai-header, .v2-section-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:4px }
+.v2-kpi-grid { display:grid; grid-template-columns:repeat(6,1fr); gap:10px }
+@media(max-width:1000px){ .v2-kpi-grid{grid-template-columns:repeat(3,1fr)} }
+@media(max-width:600px){ .v2-kpi-grid{grid-template-columns:repeat(2,1fr)} }
+.kpi-card-v2 { background:#f8fafc; border-radius:10px; padding:14px; transition:var(--transition) }
+.kpi-card-v2:hover { box-shadow:var(--shadow); background:var(--card) }
+.kpi-v2-top { display:flex; align-items:center; gap:6px; margin-bottom:6px }
+.kpi-v2-icon { font-size:16px }
+.kpi-v2-label { font-size:12px; color:var(--text2); font-weight:500 }
+.kpi-v2-value { font-size:20px; font-weight:700; color:var(--text); margin-bottom:6px }
+.kpi-v2-changes { display:flex; gap:6px; flex-wrap:wrap }
+.kpi-v2-change { font-size:10px; padding:1px 6px; border-radius:4px; font-weight:600 }
+.kpi-v2-change.up { background:#dcfce7; color:#16a34a }
+.kpi-v2-change.down { background:#fef2f2; color:#dc2626 }
+
+.v2-ai-content { padding:4px 0 }
+.v2-ai-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px }
+@media(max-width:700px){ .v2-ai-grid{grid-template-columns:1fr} }
+.v2-ai-alerts h4, .v2-ai-growth h4 { font-size:14px; font-weight:600; margin-bottom:8px }
+.ai-alert-group { display:flex; flex-direction:column; gap:4px; margin-bottom:8px }
+.ai-alert-item { display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:8px; background:#f8fafc; border:1px solid #f1f5f9; font-size:13px }
+.ai-alert-icon { font-size:15px }
+.ai-alert-text { flex:1 }
+.ai-alert-text strong { color:var(--text) }
+.ai-alert-detail { font-size:11px; color:var(--text3); white-space:nowrap }
+.ai-growth-item { padding:6px 10px; font-size:13px }
+.growth-pct { color:#16a34a; font-weight:700 }
+.ai-good { font-size:13px; color:var(--text3); padding:12px 0 }
+
+.trend-tabs { display:flex; gap:4px; background:#f1f5f9; padding:2px; border-radius:6px }
+.trend-tab { padding:4px 14px; border:none; background:transparent; border-radius:5px; font-size:12px; font-weight:500; color:var(--text2); cursor:pointer }
+.trend-tab.active { background:var(--card); color:var(--primary); box-shadow:var(--shadow) }
+
+.v2-monitor-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px }
+@media(max-width:800px){ .v2-monitor-grid{grid-template-columns:1fr} }
+.monitor-card { background:#fafbfc; border-radius:10px; padding:14px; border:1px solid #f1f5f9 }
+.monitor-card h4 { font-size:13px; font-weight:600; margin-bottom:8px }
+.monitor-item { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid #f1f5f9; font-size:13px }
+.monitor-item:last-child { border-bottom:none }
+.monitor-name { flex:1; font-weight:500 }
+.monitor-change { font-weight:700; font-size:14px; padding:1px 8px; border-radius:4px }
+.monitor-change.down { background:#fef2f2; color:#dc2626 }
+.monitor-change.up { background:#dcfce7; color:#16a34a }
+.monitor-detail { font-size:11px; color:var(--text3) }
+.monitor-empty { font-size:13px; color:var(--text3); padding:8px 0 }
+
 /* ===== 热力图 ===== */
 .heatmap-container { padding:12px 0 }
 .heatmap-grid { display:flex; flex-direction:column; gap:4px }

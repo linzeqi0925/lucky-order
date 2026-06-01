@@ -509,71 +509,144 @@ function DashboardView({ orders, loading, onRefresh }) {
   }
 
   const clearFilters = () => { setDateRange({ start: '', end: '' }); setFilterCategory(''); setFilterSupplier(''); setFilterStore(''); setDrillCat('') }
+  const handleCatClick = (cat) => { setFilterCategory(cat); setActiveTab('table') }
 
-  const handleCatClick = (cat) => {
-    setFilterCategory(cat)
-    setActiveTab('table')
+  // AI 自动发现异常
+  const findDrops = (field, labelMap) => {
+    const now = new Date()
+    const end = now.toISOString().split('T')[0]
+    const start30 = new Date(now.getTime() - 30 * 86400000).toISOString().split('T')[0]
+    const prev30 = new Date(now.getTime() - 60 * 86400000).toISOString().split('T')[0]
+    const cur = orders.filter(o => o.order_date >= start30 && o.order_date <= end)
+    const prev = orders.filter(o => o.order_date >= prev30 && o.order_date < start30)
+    if (cur.length < 5) return []
+    const curMap = {}, prevMap = {}
+    cur.forEach(o => { const v = field(o) || '未知'; curMap[v] = (curMap[v] || 0) + 1 })
+    prev.forEach(o => { const v = field(o) || '未知'; prevMap[v] = (prevMap[v] || 0) + 1 })
+    return Object.entries(curMap).map(([k, v]) => {
+      const pv = prevMap[k] || 0
+      const chg = pv > 0 ? ((v - pv) / pv * 100).toFixed(0) : 0
+      return { name: k, cur: v, prev: pv, change: parseFloat(chg) }
+    }).sort((a, b) => a.change - b.change).filter(x => x.prev >= 3).slice(0, 5)
+  }
+  const aiDrops = {
+    categories: findDrops(o => o.product_category),
+    stores: findDrops(o => o.store_name),
+    countries: findDrops(o => o.country),
   }
 
   return (
     <div className="dashboard-view">
       <HolidayBanner />
 
-      {/* ===== 全局筛选器 ===== */}
+      {/* 筛选器 */}
       <div className="filter-bar">
-        <div className="filter-group">
-          <label>时间</label>
+        <div className="filter-group"><label>时间</label>
           <input type="date" value={dateRange.start} onChange={e => setDateRange(p => ({...p, start: e.target.value}))} className="filter-input" />
           <span className="filter-sep">—</span>
           <input type="date" value={dateRange.end} onChange={e => setDateRange(p => ({...p, end: e.target.value}))} className="filter-input" />
         </div>
-        <div className="filter-group">
-          <label>品类</label>
+        <div className="filter-group"><label>品类</label>
           <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} className="filter-input">
-            <option value="">全部</option>
-            {allCats.map(c => <option key={c}>{c}</option>)}
+            <option value="">全部</option>{allCats.map(c => <option key={c}>{c}</option>)}
           </select>
         </div>
-        <div className="filter-group">
-          <label>供应商</label>
-          <select value={filterSupplier} onChange={e => setFilterSupplier(e.target.value)} className="filter-input">
-            <option value="">全部</option>
-            {allSups.map(s => <option key={s}>{s}</option>)}
-          </select>
-        </div>
-        <div className="filter-group">
-          <label>店铺</label>
+        <div className="filter-group"><label>店铺</label>
           <select value={filterStore} onChange={e => setFilterStore(e.target.value)} className="filter-input">
-            <option value="">全部</option>
-            {allStores.map(s => <option key={s}>{s}</option>)}
+            <option value="">全部</option>{allStores.map(s => <option key={s}>{s}</option>)}
           </select>
         </div>
-        {hasFilter && (
-          <button className="btn-clear" onClick={clearFilters}>✕ 清除筛选</button>
-        )}
-        <div className="filter-count">筛选结果：<strong>{total}</strong> 单</div>
+        <div className="filter-group"><label>供应商</label>
+          <select value={filterSupplier} onChange={e => setFilterSupplier(e.target.value)} className="filter-input">
+            <option value="">全部</option>{allSups.map(s => <option key={s}>{s}</option>)}
+          </select>
+        </div>
+        {hasFilter && <button className="btn-clear" onClick={clearFilters}>✕ 清除</button>}
+        <div className="filter-count">筛选：<strong>{total}</strong> 单</div>
       </div>
 
-      {/* KPI 卡片 */}
-      <div className="kpi-row">
-        <div className="kpi-card"><div className="kpi-icon" style={{background:'#ede9fe',color:'#6d28d9'}}>📦</div><div><div className="kpi-num">{total}</div><div className="kpi-label">总订单 <span className={`trend-arrow ${orderChange >= 0 ? 'up' : 'down'}`}>{orderChange >= 0 ? '↑' : '↓'}{Math.abs(orderChange)}%</span></div></div></div>
-        <div className="kpi-card"><div className="kpi-icon" style={{background:'#dbeafe',color:'#2563eb'}}>📊</div><div><div className="kpi-num">{totalQty.toLocaleString()}</div><div className="kpi-label">总出库量 <span className={`trend-arrow ${qtyChange >= 0 ? 'up' : 'down'}`}>{qtyChange >= 0 ? '↑' : '↓'}{Math.abs(qtyChange)}%</span></div></div></div>
-        <div className="kpi-card"><div className="kpi-icon" style={{background:'#fce7f3',color:'#db2777'}}>🏷️</div><div><div className="kpi-num">{catSorted.length}</div><div className="kpi-label">品类数</div></div></div>
-        <div className="kpi-card"><div className="kpi-icon" style={{background:'#fef3c7',color:'#d97706'}}>🌍</div><div><div className="kpi-num">{countrySorted.length}</div><div className="kpi-label">覆盖国家</div></div></div>
-        <div className="kpi-card"><div className="kpi-icon" style={{background:'#e0f2fe',color:'#0284c7'}}>🏪</div><div><div className="kpi-num">{storeSorted.length}</div><div className="kpi-label">店铺数</div></div></div>
-        <div className="kpi-card action" onClick={() => setCompareMode(!compareMode)}><div className="kpi-icon" style={{background:compareMode?'#fef3c7':'#f3e8ff',color:compareMode?'#d97706':'#9333ea'}}>📊</div><div><div className="kpi-num" style={{fontSize:14}}>{compareMode ? '关闭对比' : '对比分析'}</div><div className="kpi-label">选两段时间对比</div></div></div>
+      {/* ===== 第一屏：核心 KPI（多期环比） ===== */}
+      <div className="v2-kpi-section">
+        <div className="v2-kpi-header"><span className="section-badge">📊 经营概览</span></div>
+        <div className="v2-kpi-grid">
+          <KpiCard icon="📦" label="总订单" value={total} fmt={v => v.toLocaleString()}
+            yesterday={getDayComp(orders, 1)} week={getPeriodComp(orders, 7)} month={getPeriodComp(orders, 30)} />
+          <KpiCard icon="💰" label="总销售额" value={totalAmt} fmt={v => `¥${v.toFixed(0)}`}
+            yesterday={getDayComp(orders, 1, 'amount')} week={getPeriodComp(orders, 7, 'amount')} month={getPeriodComp(orders, 30, 'amount')} />
+          <KpiCard icon="📊" label="总出库量" value={totalQty} fmt={v => v.toLocaleString()}
+            yesterday={getDayComp(orders, 1, 'qty')} week={getPeriodComp(orders, 7, 'qty')} month={getPeriodComp(orders, 30, 'qty')} />
+          <KpiCard icon="🎯" label="客单价" value={total > 0 ? totalAmt / total : 0} fmt={v => `¥${v.toFixed(0)}`} />
+          <KpiCard icon="🌍" label="覆盖国家" value={countrySorted.length} fmt={v => v.toString()} />
+          <KpiCard icon="🏪" label="运营店铺" value={storeSorted.length} fmt={v => v.toString()} />
+        </div>
+      </div>
+
+      {/* ===== 第二屏：AI 经营洞察 ===== */}
+      <div className="v2-ai-section">
+        <div className="v2-ai-header"><span className="section-badge">🧠 AI 经营洞察</span></div>
+        <div className="v2-ai-content">
+          {total === 0 ? <div className="empty-sm">暂无数据，导入后自动生成洞察</div> : (
+            <div className="v2-ai-grid">
+              <div className="v2-ai-alerts">
+                <h4>⚠️ 异常下降</h4>
+                {renderAIAlerts(aiDrops.categories, '品类', '📦')}
+                {renderAIAlerts(aiDrops.countries, '国家', '🌍')}
+                {renderAIAlerts(aiDrops.stores, '店铺', '🏪')}
+                {!aiDrops.categories.length && !aiDrops.countries.length && !aiDrops.stores.length &&
+                  <p className="ai-good">✅ 各项指标平稳，无显著异常</p>}
+              </div>
+              <div className="v2-ai-growth">
+                <h4>🔥 增长机会</h4>
+                {renderAIGrowth(aiDrops.categories, '品类')}
+                {renderAIGrowth(aiDrops.countries, '国家')}
+                {!aiDrops.categories.length && !aiDrops.countries.length &&
+                  <p className="ai-good">✅ 暂无突出增长点</p>}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ===== 第三屏：趋势 ===== */}
+      <div className="v2-trend-section">
+        <div className="v2-section-header">
+          <span className="section-badge">📈 销售趋势</span>
+          <div className="trend-tabs">
+            {[7, 30, 90].map(d => (
+              <button key={d} className={`trend-tab ${trendDays === d ? 'active' : ''}`}
+                onClick={() => setTrendDays(d)}>近{d}天</button>
+            ))}
+          </div>
+        </div>
+        <div className="chart-row">
+          <div className="chart-card wide">
+            <div style={{height:260}}>
+              <ReactECharts option={getTrendOption(trendLabels, trendOrders)} style={{height:'100%'}} opts={{renderer:'svg'}} />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ===== 第四屏：异常监控 ===== */}
+      <div className="v2-monitor-section">
+        <div className="v2-section-header"><span className="section-badge">🚨 异常监控</span></div>
+        <div className="v2-monitor-grid">
+          <MonitorCard title="📦 下降最快品类" items={aiDrops.categories.slice(0, 3)} />
+          <MonitorCard title="🏪 下降最快店铺" items={aiDrops.stores.slice(0, 3)} />
+          <MonitorCard title="🌍 下降最快国家" items={aiDrops.countries.slice(0, 3)} />
+        </div>
       </div>
 
       {/* Tab 导航 */}
       <div className="tab-bar">
-        <button className={`tab-pill ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}>品类概览</button>
-        <button className={`tab-pill ${activeTab === 'trend' ? 'active' : ''}`} onClick={() => setActiveTab('trend')}>趋势分析</button>
-        <button className={`tab-pill ${activeTab === 'heatmap' ? 'active' : ''}`} onClick={() => setActiveTab('heatmap')}>📅 热力图</button>
-        <button className={`tab-pill ${activeTab === 'store' ? 'active' : ''}`} onClick={() => setActiveTab('store')}>🏪 店铺</button>
-        <button className={`tab-pill ${activeTab === 'country' ? 'active' : ''}`} onClick={() => setActiveTab('country')}>🌍 国家</button>
+        <button className={`tab-pill ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}>品类</button>
+        <button className={`tab-pill ${activeTab === 'trend' ? 'active' : ''}`} onClick={() => setActiveTab('trend')}>趋势</button>
+        <button className={`tab-pill ${activeTab === 'heatmap' ? 'active' : ''}`} onClick={() => setActiveTab('heatmap')}>热力图</button>
+        <button className={`tab-pill ${activeTab === 'store' ? 'active' : ''}`} onClick={() => setActiveTab('store')}>店铺</button>
+        <button className={`tab-pill ${activeTab === 'country' ? 'active' : ''}`} onClick={() => setActiveTab('country')}>国家</button>
         <button className={`tab-pill ${activeTab === 'supplier' ? 'active' : ''}`} onClick={() => setActiveTab('supplier')}>供应商</button>
         <button className={`tab-pill ${activeTab === 'table' ? 'active' : ''}`} onClick={() => setActiveTab('table')}>明细</button>
-        <button className={`tab-pill ${activeTab === 'newproduct' ? 'active' : ''}`} onClick={() => setActiveTab('newproduct')}>✨ 新品</button>
+        <button className={`tab-pill ${activeTab === 'newproduct' ? 'active' : ''}`} onClick={() => setActiveTab('newproduct')}>新品</button>
         <button className={`tab-pill ${activeTab === 'ai' ? 'active' : ''}`} onClick={() => setActiveTab('ai')}>AI</button>
       </div>
 
@@ -907,6 +980,114 @@ function NewProductTracker({ orders, allOrders }) {
           })}
         </div>
       )}
+    </div>
+  )
+}
+
+/* ========== 经营驾驶舱辅助组件 ========== */
+
+function KpiCard({ icon, label, value, fmt, yesterday, week, month }) {
+  const changes = [
+    { label: '昨日', val: yesterday },
+    { label: '上周', val: week },
+    { label: '上月', val: month },
+  ].filter(c => c.val !== undefined)
+  return (
+    <div className="kpi-card-v2">
+      <div className="kpi-v2-top">
+        <span className="kpi-v2-icon">{icon}</span>
+        <span className="kpi-v2-label">{label}</span>
+      </div>
+      <div className="kpi-v2-value">{fmt ? fmt(value) : value}</div>
+      <div className="kpi-v2-changes">
+        {changes.map(c => (
+          <span key={c.label} className={`kpi-v2-change ${c.val >= 0 ? 'up' : 'down'}`}>
+            {c.label} {c.val >= 0 ? '↑' : '↓'}{Math.abs(c.val)}%
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function MonitorCard({ title, items }) {
+  return (
+    <div className="monitor-card">
+      <h4>{title}</h4>
+      {items.length === 0 ? <p className="monitor-empty">✅ 无异常</p> : (
+        items.map((item, i) => (
+          <div key={i} className="monitor-item">
+            <span className="monitor-name">{item.name}</span>
+            <span className="monitor-change down">{item.change}%</span>
+            <span className="monitor-detail">{item.cur}单 vs {item.prev}单</span>
+          </div>
+        ))
+      )}
+    </div>
+  )
+}
+
+// 辅助计算函数
+function getDayComp(orders, days, type) {
+  const now = new Date()
+  const today = now.toISOString().split('T')[0]
+  const yesterday = new Date(now.getTime() - days * 86400000).toISOString().split('T')[0]
+  const dayBefore = new Date(now.getTime() - (days + 1) * 86400000).toISOString().split('T')[0]
+  const cur = orders.filter(o => o.order_date === yesterday)
+  const prev = orders.filter(o => o.order_date === dayBefore)
+  const get = (arr, t) => t === 'qty' ? arr.reduce((s, o) => s + o.quantity, 0) : t === 'amount' ? arr.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0) : arr.length
+  const cv = get(cur, type || 'count'), pv = get(prev, type || 'count')
+  return pv > 0 ? Math.round((cv - pv) / pv * 100) : 0
+}
+function getPeriodComp(orders, days, type) {
+  const now = new Date()
+  const end = now.toISOString().split('T')[0]
+  const start = new Date(now.getTime() - days * 86400000).toISOString().split('T')[0]
+  const prevStart = new Date(now.getTime() - days * 2 * 86400000).toISOString().split('T')[0]
+  const cur = orders.filter(o => o.order_date >= start && o.order_date <= end)
+  const prev = orders.filter(o => o.order_date >= prevStart && o.order_date < start)
+  const get = (arr, t) => t === 'qty' ? arr.reduce((s, o) => s + o.quantity, 0) : t === 'amount' ? arr.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0) : arr.length
+  const cv = get(cur, type || 'count'), pv = get(prev, type || 'count')
+  return pv > 0 ? Math.round((cv - pv) / pv * 100) : 0
+}
+
+// 趋势数据生成（跟随 trendDays 切换）
+const getTrendDayMap = (all, days) => {
+  const now = new Date()
+  const map = {}
+  for (let i = days - 1; i >= 0; i--) { const d = new Date(now); d.setDate(d.getDate() - i); map[d.toISOString().split('T')[0]] = 0 }
+  all.forEach(o => { if (map[o.order_date] !== undefined) map[o.order_date]++ })
+  return map
+}
+const trendMap = getTrendDayMap(orders, trendDays)
+const trendLabels = Object.keys(trendMap).map(d => d.slice(5))
+const trendOrders = Object.values(trendMap)
+
+function renderAIAlerts(items, typeName, icon) {
+  const bad = items.filter(x => x.change < -10).slice(0, 3)
+  if (bad.length === 0) return null
+  return (
+    <div className="ai-alert-group">
+      {bad.map((item, i) => (
+        <div key={i} className="ai-alert-item" style={i === 0 ? {background:'#fef2f2',borderColor:'#fecaca'} : {}}>
+          <span className="ai-alert-icon">{icon}</span>
+          <span className="ai-alert-text"><strong>{item.name}</strong> 下降 {item.change}%</span>
+          <span className="ai-alert-detail">{item.cur}单 → {item.prev}单</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+function renderAIGrowth(items, typeName) {
+  const good = items.filter(x => x.change > 20).slice(0, 3)
+  if (good.length === 0) return null
+  return (
+    <div className="ai-growth-group">
+      {good.map((item, i) => (
+        <div key={i} className="ai-growth-item">
+          <span>🔥 <strong>{item.name}</strong> 增长 <span className="growth-pct">{item.change}%</span></span>
+        </div>
+      ))}
     </div>
   )
 }
