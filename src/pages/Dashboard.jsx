@@ -259,40 +259,45 @@ function DataImport({ onImported }) {
               province: String(row['所属地区（省/州）'] || ''),
               order_date: formatExcelDate(row['发货时间']),
               totalQty: 0,
-              skuNames: []
+              skuNames: [],
+              skus: []
             }
           }
           orderMap[oid].totalQty += parseInt(row['SKU总数量']) || 1
           const sku = String(row['SKU'] || '')
           const pname = String(row['订单商品名称'] || '')
-          if (sku) orderMap[oid].skuNames.push(`${pname}(${sku})`)
+          if (sku) orderMap[oid].skus.push(sku)
+          if (pname) orderMap[oid].skuNames.push(pname)
         })
         rowsToImport = Object.values(orderMap).map(order => ({
-          ...order,
+          order_no: order.order_no,
+          store_name: order.store_name,
+          country: order.country,
+          province: order.province,
           product_name: [...new Set(order.skuNames)].join('; '),
-          product_sku: [...new Set(order.skuNames.map(s => s.match(/\(([^)]+)\)/)?.[1] || '').filter(Boolean))].join(', '),
+          product_sku: [...new Set(order.skus)].join(', '),
           quantity: order.totalQty,
           product_category: classifyProduct(order.skuNames[0] || ''),
+          order_date: order.order_date,
+          total_amount: 0,
         }))
       }
 
       for (let i = 0; i < rowsToImport.length; i += 100) {
-        const batch = rowsToImport.slice(i, i + 100).map(row => {
-          const storeInfo = row.store_name ? `[${row.store_name}]` : ''
-          const countryInfo = row.country ? `[国家:${row.country}]` : ''
-          const provInfo = row.province ? `[州:${row.province}]` : ''
-          const remark = [storeInfo, countryInfo, provInfo].filter(Boolean).join(' ')
-          return {
-            user_id: user.id,
-            order_no: row.order_no || `IMP-${Date.now()}-${i}`,
-            product_category: row.product_category || (row.product_name ? classifyProduct(row.product_name) : '未分类'),
-            product_name: row.product_name || '',
-            quantity: row.quantity || 1,
-            order_date: row.order_date || new Date().toISOString().split('T')[0],
-            order_status: 'completed',
-            remark,
-          }
-        })
+        const batch = rowsToImport.slice(i, i + 100).map(row => ({
+          user_id: user.id,
+          order_no: row.order_no || `IMP-${Date.now()}-${i}`,
+          store_name: row.store_name || '',
+          country: row.country || '',
+          province: row.province || '',
+          product_sku: row.product_sku || '',
+          product_category: row.product_category || '未分类',
+          product_name: row.product_name || '',
+          quantity: row.quantity || 1,
+          total_amount: row.total_amount || 0,
+          order_date: row.order_date || new Date().toISOString().split('T')[0],
+          order_status: 'completed',
+        }))
         const { error: err } = await supabase.from('orders').insert(batch)
         if (err) throw err
         imported += batch.length
@@ -384,40 +389,31 @@ function DataImport({ onImported }) {
 /* ========== 数据看板 ========== */
 function DashboardView({ orders, loading, onRefresh }) {
   const [activeTab, setActiveTab] = useState('overview')
-  // 全局筛选
   const [dateRange, setDateRange] = useState({ start: '', end: '' })
   const [filterCategory, setFilterCategory] = useState('')
   const [filterSupplier, setFilterSupplier] = useState('')
   const [filterStore, setFilterStore] = useState('')
   const [drillCat, setDrillCat] = useState('')
+  const [trendDays, setTrendDays] = useState(7)
 
-  // 从 remark 提取店铺名
-  const parseStore = (remark) => {
-    if (!remark) return ''
-    const m = remark.match(/\[([^\]]+)\]/)
-    return m ? m[1] : ''
-  }
-  // 所有可用的品类、供应商、店铺
   const allCats = [...new Set(orders.map(o => o.product_category).filter(Boolean))]
   const allSups = [...new Set(orders.map(o => o.supplier).filter(Boolean))]
-  const allStores = [...new Set(orders.map(o => parseStore(o.remark)).filter(Boolean))]
+  const allStores = [...new Set(orders.map(o => o.store_name).filter(Boolean))]
 
-  // 筛选后的数据
   const filtered = orders.filter(o => {
     if (filterCategory && o.product_category !== filterCategory) return false
     if (filterSupplier && o.supplier !== filterSupplier) return false
-    if (filterStore && parseStore(o.remark) !== filterStore) return false
+    if (filterStore && o.store_name !== filterStore) return false
     if (dateRange.start && o.order_date < dateRange.start) return false
     if (dateRange.end && o.order_date > dateRange.end) return false
     return true
   })
-
   const hasFilter = filterCategory || filterSupplier || filterStore || dateRange.start || dateRange.end
 
   const total = filtered.length
   const totalQty = filtered.reduce((s, o) => s + o.quantity, 0)
+  const totalAmt = filtered.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0)
 
-  // 品类统计
   const catMap = {}
   filtered.forEach(o => {
     const cat = o.product_category || '未分类'
@@ -428,27 +424,20 @@ function DashboardView({ orders, loading, onRefresh }) {
   })
   const catSorted = Object.entries(catMap).sort((a, b) => b[1].qty - a[1].qty)
 
-  // 状态统计
   const statusMap = {}
   const statusLabel = { pending: '待处理', processing: '生产中', shipped: '已发货', completed: '已完成', cancelled: '已取消' }
   filtered.forEach(o => { statusMap[o.order_status] = (statusMap[o.order_status] || 0) + 1 })
 
-  // 供应商统计
   const supMap = {}
   filtered.forEach(o => { if (o.supplier) supMap[o.supplier] = (supMap[o.supplier] || 0) + o.quantity })
   const supSorted = Object.entries(supMap).sort((a, b) => b[1] - a[1])
 
-  // 国家/地区统计
-  const parseMeta = (remark, key) => {
-    if (!remark) return ''
-    const m = remark.match(new RegExp(`\\[${key}:([^\\]]+)\\]`))
-    return m ? m[1] : ''
-  }
+  // 直接读字段
   const countryMap = {}
   const provinceMap = {}
   filtered.forEach(o => {
-    const c = parseMeta(o.remark, '国家') || o.country || ''
-    const p = parseMeta(o.remark, '州') || o.province || ''
+    const c = o.country || ''
+    const p = o.province || ''
     if (c) countryMap[c] = (countryMap[c] || 0) + o.quantity
     if (p) provinceMap[p] = (provinceMap[p] || 0) + o.quantity
   })
@@ -458,7 +447,7 @@ function DashboardView({ orders, loading, onRefresh }) {
   // 店铺统计
   const storeMap = {}
   filtered.forEach(o => {
-    const s = parseStore(o.remark)
+    const s = o.store_name
     if (s) storeMap[s] = (storeMap[s] || 0) + o.quantity
   })
   const storeSorted = Object.entries(storeMap).sort((a, b) => b[1] - a[1])
@@ -1043,7 +1032,7 @@ function OrderTable({ orders, loading, onRefresh }) {
       <div className="table-wrap">
         {loading ? <div className="empty-state">加载中...</div> : filtered.length === 0 ? <div className="empty-state">暂无数据</div> : (
           <table className="order-table">
-            <thead><tr><th>订单号</th><th>品类</th><th>产品</th><th>库存SKU</th><th>数量</th><th>供应商</th><th>国家</th><th>日期</th></tr></thead>
+            <thead><tr><th>订单号</th><th>品类</th><th>产品</th><th>库存SKU</th><th>数量</th><th>供应商</th><th>店铺</th><th>国家</th><th>日期</th></tr></thead>
             <tbody>{filtered.map(o => (
               <tr key={o.id}>
                 <td><span className="orderno">{o.order_no}</span></td>
@@ -1052,7 +1041,8 @@ function OrderTable({ orders, loading, onRefresh }) {
                 <td>{o.product_sku || '-'}</td>
                 <td>{o.quantity}</td>
                 <td>{o.supplier || '-'}</td>
-                <td>{parseMeta(o.remark, '国家') || '-'}</td>
+                <td>{o.store_name || '-'}</td>
+                <td>{o.country || '-'}</td>
                 <td>{o.order_date}</td>
               </tr>
             ))}</tbody>
