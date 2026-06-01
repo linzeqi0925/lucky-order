@@ -535,6 +535,18 @@ function DashboardView({ orders, loading, onRefresh }) {
     countries: findDrops(o => o.country),
   }
 
+  // 趋势数据（放到组件内）
+  const getTrendDayMap = (all, days) => {
+    const now = new Date()
+    const map = {}
+    for (let i = days - 1; i >= 0; i--) { const d = new Date(now); d.setDate(d.getDate() - i); map[d.toISOString().split('T')[0]] = 0 }
+    all.forEach(o => { if (map[o.order_date] !== undefined) map[o.order_date]++ })
+    return map
+  }
+  const trendMap = getTrendDayMap(orders, trendDays)
+  const trendLabels = Object.keys(trendMap).map(d => d.slice(5))
+  const trendOrders = Object.values(trendMap)
+
   return (
     <div className="dashboard-view">
       <HolidayBanner />
@@ -1050,18 +1062,6 @@ function getPeriodComp(orders, days, type) {
   const cv = get(cur, type || 'count'), pv = get(prev, type || 'count')
   return pv > 0 ? Math.round((cv - pv) / pv * 100) : 0
 }
-
-// 趋势数据生成（跟随 trendDays 切换）
-const getTrendDayMap = (all, days) => {
-  const now = new Date()
-  const map = {}
-  for (let i = days - 1; i >= 0; i--) { const d = new Date(now); d.setDate(d.getDate() - i); map[d.toISOString().split('T')[0]] = 0 }
-  all.forEach(o => { if (map[o.order_date] !== undefined) map[o.order_date]++ })
-  return map
-}
-const trendMap = getTrendDayMap(orders, trendDays)
-const trendLabels = Object.keys(trendMap).map(d => d.slice(5))
-const trendOrders = Object.values(trendMap)
 
 function renderAIAlerts(items, typeName, icon) {
   const bad = items.filter(x => x.change < -10).slice(0, 3)
