@@ -27,24 +27,17 @@ export default function CountryMap({ orders }) {
   const [mapLoaded, setMapLoaded] = useState(false)
   const chartRef = useRef(null)
 
-  // 加载 ECharts 官方世界地图
+  // 加载本地世界地图 GeoJSON
   useEffect(() => {
-    fetch('https://unpkg.com/echarts@5.5.0/map/json/world.json')
-      .then(r => r.json())
+    fetch('/maps/world.json')
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json() })
       .then(data => {
         echarts.registerMap('world', data)
         setMapLoaded(true)
       })
-      .catch(() => {
-        // 如果网络不行，用备用 CDN
-        fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json')
-          .then(r => r.json())
-          .then(topojson => {
-            const { features } = topojson.objects.countries
-            echarts.registerMap('world', { features, type: 'FeatureCollection' })
-            setMapLoaded(true)
-          })
-          .catch(() => setMapLoaded(true))
+      .catch(err => {
+        console.warn('地图加载失败:', err.message)
+        setMapLoaded(true) // 即使失败也让页面显示
       })
   }, [])
 
