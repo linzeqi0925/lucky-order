@@ -22,9 +22,33 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica
 .login-logo { width:56px; height:56px; background:var(--primary); border-radius:16px; display:flex; align-items:center; justify-content:center; margin:0 auto 16px; font-size:28px }
 .login-header h1 { font-size:24px; margin-bottom:6px }
 .login-header p { color:var(--text2); font-size:14px }
-.login-toggle { text-align:center; margin-top:20px; color:var(--primary); font-size:14px; cursor:pointer }
+.login-toggle { text-align:center; margin-top:20px; color:var(--primary); font-size:14px; cursor:pointer; font-weight:500 }
 .login-toggle:hover { text-decoration:underline }
-.form-group { margin-bottom:16px }
+
+/* 登录 vs 注册按钮不同色 */
+.btn-primary {
+  display:inline-flex; align-items:center; gap:6px; justify-content:center; width:100%;
+  padding:11px 20px; border:none; border-radius:var(--radius-sm); font-size:15px; font-weight:600;
+  cursor:pointer; transition:var(--transition); font-family:inherit;
+  background:var(--primary); color:white;
+}
+.btn-primary:hover:not(:disabled) { background:var(--primary-dark); transform:translateY(-1px); box-shadow:0 4px 12px rgba(99,102,241,0.3); }
+.btn-primary:disabled { opacity:0.6; cursor:not-allowed }
+
+.btn-register {
+  display:inline-flex; align-items:center; gap:6px; justify-content:center; width:100%;
+  padding:11px 20px; border:none; border-radius:var(--radius-sm); font-size:15px; font-weight:600;
+  cursor:pointer; transition:var(--transition); font-family:inherit;
+  background:#059669; color:white;
+}
+.btn-register:hover:not(:disabled) { background:#047857; transform:translateY(-1px); box-shadow:0 4px 12px rgba(5,150,105,0.3); }
+.btn-register:disabled { opacity:0.6; cursor:not-allowed }
+
+.register-notice {
+  background:#fef3c7; border:1px solid #fde68a; border-radius:var(--radius-sm);
+  padding:12px 14px; font-size:12px; line-height:1.7; color:#92400e; margin-bottom:16px
+}
+.register-notice strong { color:#dc2626 }
 .form-group label { display:block; font-size:13px; font-weight:600; margin-bottom:6px }
 .form-group input, .form-group select {
   width:100%; padding:10px 14px; border:1.5px solid var(--border); border-radius:var(--radius-sm);

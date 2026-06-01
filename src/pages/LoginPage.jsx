@@ -64,16 +64,30 @@ export default function LoginPage() {
             />
           </div>
 
+          {/* 注册提示 */}
+          {isRegister && (
+            <div className="register-notice">
+              ⚠️ 可随意填写注册邮箱，<strong>不需要验证码</strong>，不需要真实邮箱。<br />
+              邮箱仅用于创建数据库用，<strong>请保管好注册邮箱及密码！</strong>
+            </div>
+          )}
+
           {error && <div className="msg msg-error">{error}</div>}
           {success && <div className="msg msg-success">{success}</div>}
 
-          <button type="submit" className="btn btn-primary" disabled={loading}>
-            {loading ? '处理中...' : isRegister ? '注册' : '登录'}
-          </button>
+          {isRegister ? (
+            <button type="submit" className="btn btn-register" disabled={loading}>
+              {loading ? '注册中...' : '注册新账号'}
+            </button>
+          ) : (
+            <button type="submit" className="btn btn-primary" disabled={loading}>
+              {loading ? '登录中...' : '登录'}
+            </button>
+          )}
         </form>
 
         <p className="login-toggle" onClick={() => { setIsRegister(!isRegister); setError(''); setSuccess('') }}>
-          {isRegister ? '已有账号？去登录' : '没有账号？去注册'}
+          {isRegister ? '已有账号？去登录 →' : '没有账号？去注册 →'}
         </p>
       </div>
     </div>
