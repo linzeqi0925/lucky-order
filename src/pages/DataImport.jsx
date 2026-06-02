@@ -74,11 +74,10 @@ export default function DataImport({ onImported }) {
       console.log('STEP3 开始 import xlsx')
       const XLSX = await import('xlsx')
       console.log('STEP3 XLSX import 成功', typeof XLSX)
-      console.log('STEP3 XLSX.default', typeof XLSX.default)
-      console.log('STEP3 XLSX.default.read', typeof XLSX.default?.read)
+      console.log('STEP3 XLSX 是否有 read', typeof XLSX.read)
 
       console.log('STEP4 开始 XLSX.read')
-      const wb = XLSX.default.read(buf, { type: 'array' })
+      const wb = XLSX.read(buf, { type: 'array' })
       console.log('STEP5 XLSX.read 成功')
       console.log('STEP5 SheetNames', wb.SheetNames)
 
@@ -88,7 +87,7 @@ export default function DataImport({ onImported }) {
       const ws = wb.Sheets[sheetName]
       console.log('STEP7 worksheet ok')
 
-      const rawRows = XLSX.default.utils.sheet_to_json(ws, { header: 1, defval: '' })
+      const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
       console.log('STEP8 rows 数量', rawRows.length)
 
       if (!rawRows || rawRows.length < 2) throw new Error('表格中没有数据')
