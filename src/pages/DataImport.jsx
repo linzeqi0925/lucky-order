@@ -67,14 +67,35 @@ export default function DataImport({ onImported }) {
     setParsing(true)
     setError('')
     try {
-      const XLSX = await import('xlsx')
+      console.log('STEP1 开始读取文件')
       const buf = await file.arrayBuffer()
+      console.log('STEP2 文件读取成功', buf.byteLength)
+
+      console.log('STEP3 开始 import xlsx')
+      const XLSX = await import('xlsx')
+      console.log('STEP3 XLSX import 成功', typeof XLSX)
+      console.log('STEP3 XLSX.default', typeof XLSX.default)
+      console.log('STEP3 XLSX.default.read', typeof XLSX.default?.read)
+
+      console.log('STEP4 开始 XLSX.read')
       const wb = XLSX.default.read(buf, { type: 'array' })
-      const sheet = wb.Sheets[wb.SheetNames[0]]
-      const rawRows = XLSX.default.utils.sheet_to_json(sheet, { header: 1, defval: '' })
+      console.log('STEP5 XLSX.read 成功')
+      console.log('STEP5 SheetNames', wb.SheetNames)
+
+      const sheetName = wb.SheetNames[0]
+      console.log('STEP6 sheetName', sheetName)
+
+      const ws = wb.Sheets[sheetName]
+      console.log('STEP7 worksheet ok')
+
+      const rawRows = XLSX.default.utils.sheet_to_json(ws, { header: 1, defval: '' })
+      console.log('STEP8 rows 数量', rawRows.length)
+
       if (!rawRows || rawRows.length < 2) throw new Error('表格中没有数据')
 
       const header = rawRows[0]
+      console.log('STEP9 header', header)
+      if (!header || header.length === 0) throw new Error('表头为空')
       const dataRows = rawRows.slice(1).filter(r => r.some(c => c !== ''))
       if (dataRows.length === 0) throw new Error('表格中没有数据')
 
@@ -132,6 +153,9 @@ export default function DataImport({ onImported }) {
 
       setPreview({ orders: orders.slice(0, 20), total: orders.length, allOrders: orders, cleanInfo, isMabang, qualityIssues })
     } catch (err) {
+      console.error('PARSE ERROR', err)
+      console.error('PARSE ERROR message:', err.message)
+      console.error('PARSE ERROR stack:', err.stack)
       setError(err.message)
     } finally {
       setParsing(false)
