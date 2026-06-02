@@ -47,6 +47,7 @@ export default function Dashboard() {
   // 共享组件同时需要加载数据
   const handleImported = (result) => {
     loadOrders()
+    loadItems()
     if (result) {
       const msg = `✅ 导入完成\n新增订单: ${result.inserted}\n跳过重复: ${result.skipped}`
       alert(msg)
