@@ -11,7 +11,7 @@
  *   - DataImport:       数据导入
  */
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useOrders, useOrderItems } from '../hooks/useOrders'
 import OverviewDashboard from './OverviewDashboard'
@@ -21,9 +21,7 @@ import StoreCenter from './StoreCenter'
 import AiInsightCenter from './AiInsightCenter'
 import DataCenter from './DataCenter'
 import DataImport from './DataImport'
-import ShareModal from '../components/ShareModal'
 import RulesModal from '../components/RulesModal'
-import html2canvas from 'html2canvas'
 
 const NAV_ITEMS = [
   { key: 'overview',    label: '经营驾驶舱', icon: '📊' },
@@ -40,10 +38,7 @@ export default function Dashboard() {
   const { orders, loading, loadOrders, setOrders } = useOrders(user)
   const { items: orderItems, loading: itemsLoading, loadItems } = useOrderItems(user)
   const [activeNav, setActiveNav] = useState('overview')
-  const [showShare, setShowShare] = useState(false)
   const [showRules, setShowRules] = useState(false)
-  const [exporting, setExporting] = useState(false)
-  const dashboardRef = useRef(null)
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUser(data.user))
@@ -60,21 +55,27 @@ export default function Dashboard() {
     setActiveNav('overview')
   }
 
-  const handleExport = async () => {
-    setExporting(true)
-    try {
-      const el = dashboardRef.current
-      if (!el) return
-      const canvas = await html2canvas(el, { backgroundColor: '#f0f2f5', scale: 2, useCORS: true })
-      const link = document.createElement('a')
-      link.download = `出库分析报告_${new Date().toISOString().slice(0, 10)}.png`
-      link.href = canvas.toDataURL('image/png')
-      link.click()
-    } catch (err) {
-      alert('导出失败：' + err.message)
-    } finally {
-      setExporting(false)
-    }
+  const handleExportCSV = async () => {
+    const user = (await supabase.auth.getUser()).data.user
+    if (!user || orders.length === 0) return
+
+    const headers = ['订单编号','店铺','国家','商品','品类','数量','日期','星期','状态']
+    const rows = orders.map(o => [
+      o.order_no, o.store_name, o.country, o.product_name,
+      o.product_category, o.quantity, o.order_date, o.weekday||'', o.order_status||''
+    ])
+
+    let csv = '\uFEFF' + headers.join(',') + '\n'
+    rows.forEach(r => {
+      csv += r.map(c => `"${String(c||'').replace(/"/g,'""')}"`).join(',') + '\n'
+    })
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = `订单明细_${new Date().toISOString().slice(0,10)}.csv`
+    link.click()
+    URL.revokeObjectURL(link.href)
   }
 
   const handleLogout = async () => {
@@ -107,9 +108,8 @@ export default function Dashboard() {
         </div>
         <div className="topbar-right">
           <button className="btn-outline-sm" onClick={() => setShowRules(true)} title="智能分类规则">🏷️ 规则</button>
-          <button className="btn-outline-sm" onClick={() => setShowShare(true)} title="分享给同事" disabled={orders.length === 0}>🔗 分享</button>
-          <button className="btn-outline-sm" onClick={handleExport} disabled={exporting || orders.length === 0}>
-            {exporting ? '⏳' : '📷'} 导出
+          <button className="btn-outline-sm" onClick={handleExportCSV} disabled={orders.length === 0}>
+            📥 导出明细
           </button>
           <div className="user-avatar">{user.email?.charAt(0).toUpperCase()}</div>
           <span className="user-email">{user.email?.split('@')[0]}</span>
@@ -147,9 +147,6 @@ export default function Dashboard() {
       </div>
 
       {/* 弹窗 */}
-      {showShare && (
-        <ShareModal orders={orders} user={user} onClose={() => setShowShare(false)} />
-      )}
       {showRules && (
         <RulesModal onClose={() => setShowRules(false)} />
       )}
