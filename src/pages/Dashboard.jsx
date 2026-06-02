@@ -13,7 +13,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { useOrders, useOrderItems } from '../hooks/useOrders'
+import { useOrders, useOrderItems, useFilters } from '../hooks/useOrders'
 import OverviewDashboard from './OverviewDashboard'
 import SkuCenter from './SkuCenter'
 import CountryCenter from './CountryCenter'
@@ -35,7 +35,7 @@ const NAV_ITEMS = [
 
 export default function Dashboard() {
   const [user, setUser] = useState(null)
-  const { orders, loading, loadOrders, setOrders } = useOrders(user)
+  const { orders, loading, loadOrders } = useOrders(user)
   const { items: orderItems, loading: itemsLoading, loadItems } = useOrderItems(user)
   const [activeNav, setActiveNav] = useState('overview')
   const [showRules, setShowRules] = useState(false)
@@ -47,9 +47,8 @@ export default function Dashboard() {
   // 共享组件同时需要加载数据
   const handleImported = (result) => {
     loadOrders()
-    loadItems()
     if (result) {
-      const msg = `✅ 导入完成\n新增订单: ${result.inserted}\n跳过重复: ${result.skipped}\nSKU明细: ${result.itemsInserted}`
+      const msg = `✅ 导入完成\n新增订单: ${result.inserted}\n跳过重复: ${result.skipped}`
       alert(msg)
     }
     setActiveNav('overview')
