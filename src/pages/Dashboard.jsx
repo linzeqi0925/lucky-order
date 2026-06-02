@@ -118,7 +118,7 @@ export default function Dashboard() {
       </header>
 
       {/* 主内容区 */}
-      <div className="dashboard-body" ref={dashboardRef}>
+      <div className="dashboard-body">
         {activeNav === 'overview' && (
           <OverviewDashboard
             orders={orders}
