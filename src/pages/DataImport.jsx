@@ -7,7 +7,7 @@
  *   3. 重复导入提示（新增/重复/跳过 清晰展示）
  */
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { importOrders } from '../lib/database'
 import { classifyProduct } from '../lib/classifier'
@@ -19,9 +19,51 @@ export default function DataImport({ onImported }) {
   const [parsing, setParsing] = useState(false)
   const [preview, setPreview] = useState(null)
   const [error, setError] = useState('')
-  const fileRef = useRef(null)
+
+  // 调试：确认 input 是否真实存在于 DOM
+  useEffect(() => {
+    setTimeout(() => {
+      const el = document.querySelector('input[type=file]')
+      console.log('===== DOM 检查 =====')
+      console.log('FILE INPUT:', el)
+      if (el) {
+        console.log('hidden=', el.hidden)
+        console.log('disabled=', el.disabled)
+      } else {
+        console.error('FILE INPUT 不存在于 DOM！')
+      }
+    }, 2000)
+  }, [])
+
+  const handleFile = async (e) => {
+    console.log('===== 文件选择触发 =====')
+    const file = e.target.files?.[0]
+    console.log(file)
+    if (!file) {
+      console.error('没有读取到文件')
+      return
+    }
+    await parseFile(file)
+    // 清空文件输入，允许重复选择同一文件
+    e.target.value = ''
+  }
+
+  const handleDrop = async (e) => {
+    e.preventDefault()
+    console.log('===== DROP =====')
+    const file = e.dataTransfer.files?.[0]
+    console.log(file)
+    if (!file) {
+      console.error('拖拽文件为空')
+      return
+    }
+    await parseFile(file)
+  }
 
   const parseFile = useCallback(async (file) => {
+    console.log('===== parseFile =====')
+    console.log('文件名:', file.name)
+    console.log('文件大小:', file.size)
     setParsing(true)
     setError('')
     try {
@@ -56,7 +98,6 @@ export default function DataImport({ onImported }) {
           country: findKey(keys, ['国家','country']),
         }
 
-        // 质量检测
         qualityIssues = { emptySku: 0, emptyCountry: 0, emptyDate: 0, badQty: 0, details: [] }
 
         orders = dataRows.map((row, i) => {
@@ -113,9 +154,6 @@ export default function DataImport({ onImported }) {
     }
   }
 
-  const handleDrop = (e) => { e.preventDefault(); setDragOver(false); const file = e.dataTransfer.files[0]; if (file) parseFile(file) }
-  const handleChange = (e) => { const file = e.target.files[0]; if (file) parseFile(file) }
-
   return (
     <div className="import-page">
       <div className="import-card">
@@ -127,7 +165,13 @@ export default function DataImport({ onImported }) {
           <div className={`dropzone ${dragOver ? 'dropzone-active' : ''}`}
             onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
             onDragLeave={() => setDragOver(false)}
-            onDrop={handleDrop} onClick={() => fileRef.current?.click()}>
+            onDrop={handleDrop}
+            onClick={() => {
+              console.log('===== 点击 dropzone =====')
+              const input = document.querySelector('input[type=file]')
+              if (input) { input.click() }
+              else { console.error('input[type=file] 不存在') }
+            }}>
             <div className="dropzone-icon">
               <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
                 <rect x="10" y="6" width="36" height="44" rx="6" stroke="#6366f1" strokeWidth="2" fill="rgba(99,102,241,0.05)"/>
@@ -136,8 +180,12 @@ export default function DataImport({ onImported }) {
             </div>
             <p className="dropzone-text">{parsing ? '⏳ 解析中...' : '拖拽 Excel / CSV 到此处'}</p>
             <p className="dropzone-hint">支持 .xlsx .xls .csv 格式</p>
-            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleChange} hidden />
-            {!parsing && <button className="btn-ghost" onClick={(e) => { e.stopPropagation(); fileRef.current?.click() }}>选择文件</button>}
+            {!parsing && (
+              <label className="btn-ghost" style={{cursor:'pointer',display:'inline-block'}}>
+                选择文件
+                <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} hidden />
+              </label>
+            )}
           </div>
         ) : (
           <div className="preview-area">
@@ -154,7 +202,6 @@ export default function DataImport({ onImported }) {
               </div>
             </div>
 
-            {/* 数据质量检测 */}
             {preview.qualityIssues && (
               <div className="clean-report">
                 <div className="clean-stat">
@@ -184,7 +231,6 @@ export default function DataImport({ onImported }) {
               </div>
             )}
 
-            {/* 清洗统计 */}
             <div className="clean-report">
               <div className="clean-stat"><span className="clean-label">原始记录数</span><span className="clean-val">{preview.cleanInfo.rawRows}</span></div>
               <div className="clean-stat"><span className="clean-label">合并后订单</span><span className="clean-val">{preview.cleanInfo.mergedOrders}</span></div>
@@ -276,7 +322,6 @@ function processMabang(header, dataRows) {
     }
   })
 
-  // 按订单号聚合
   const orderMap = {}
   let itemsCount = 0
   filled.forEach(row => {
