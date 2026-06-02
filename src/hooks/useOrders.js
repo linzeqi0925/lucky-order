@@ -1,8 +1,42 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 
+const PAGE_SIZE = 1000
+
 /**
- * Hook: 加载用户订单数据
+ * 加载某张表的全部数据（通过分页绕过 max_rows 限制）
+ */
+async function loadAllFrom(table, userId, orderBy) {
+  const all = []
+  let from = 0
+  let hasMore = true
+
+  while (hasMore) {
+    const query = supabase
+      .from(table)
+      .select('*')
+      .eq('user_id', userId)
+      .range(from, from + PAGE_SIZE - 1)
+
+    if (orderBy) query.order(orderBy, { ascending: false })
+
+    const { data, error } = await query
+    if (error) throw error
+
+    if (data && data.length > 0) {
+      all.push(...data)
+      from += PAGE_SIZE
+      if (data.length < PAGE_SIZE) hasMore = false
+    } else {
+      hasMore = false
+    }
+  }
+
+  return all
+}
+
+/**
+ * Hook: 加载用户订单数据（支持超过 1000 行）
  */
 export function useOrders(user) {
   const [orders, setOrders] = useState([])
@@ -11,14 +45,14 @@ export function useOrders(user) {
   const loadOrders = useCallback(async () => {
     if (!user) return
     setLoading(true)
-    const { data } = await supabase
-      .from('orders')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('order_date', { ascending: false })
-      .limit(100000)
-    if (data) setOrders(data)
-    setLoading(false)
+    try {
+      const data = await loadAllFrom('orders', user.id, 'order_date')
+      setOrders(data)
+    } catch (e) {
+      console.error('加载订单失败:', e)
+    } finally {
+      setLoading(false)
+    }
   }, [user])
 
   useEffect(() => {
@@ -29,7 +63,7 @@ export function useOrders(user) {
 }
 
 /**
- * Hook: 加载 order_items 数据
+ * Hook: 加载 order_items 数据（支持超过 1000 行）
  */
 export function useOrderItems(user) {
   const [items, setItems] = useState([])
@@ -38,12 +72,14 @@ export function useOrderItems(user) {
   const loadItems = useCallback(async () => {
     if (!user) return
     setLoading(true)
-    const { data } = await supabase
-      .from('order_items')
-      .select('*')
-      .eq('user_id', user.id)
-    if (data) setItems(data)
-    setLoading(false)
+    try {
+      const data = await loadAllFrom('order_items', user.id)
+      setItems(data)
+    } catch (e) {
+      console.error('加载 SKU 明细失败:', e)
+    } finally {
+      setLoading(false)
+    }
   }, [user])
 
   useEffect(() => {

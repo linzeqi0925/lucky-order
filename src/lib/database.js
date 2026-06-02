@@ -32,31 +32,58 @@ export async function importOrders(userId, rawRows) {
   const details = []
   let skipped = 0
 
-  // —— 1. 聚合按订单号分组，同时保留 SKU 明细 ——
+  // 检查数据是否已经是聚合好的（processMabang 输出的格式）
+  const isPreAggregated = rawRows[0] && Array.isArray(rawRows[0].items)
+
+  // —— 1. 按 order_no 分组 ——
   const orderMap = new Map()
   for (const row of rawRows) {
     if (!row.order_no) continue
     if (!orderMap.has(row.order_no)) {
       orderMap.set(row.order_no, {
-        ...row,
+        order_no: row.order_no,
+        store_name: row.store_name || '',
+        country: row.country || '',
+        province: row.province || '',
+        product_name: row.product_name || '',
+        product_category: row.product_category || '未分类',
+        quantity: row.quantity || 1,
+        total_amount: row.total_amount || 0,
+        order_date: row.order_date || '',
+        rawDate: row.rawDate || null,
         items: [],
         totalQty: 0,
       })
     }
     const o = orderMap.get(row.order_no)
-    o.totalQty += row.quantity || 1
-    // SKU 明细
-    if (row.sku || row.product_name) {
-      o.items.push({
-        sku: row.sku || '',
-        product_name: row.product_name || '',
-        quantity: row.quantity || 1,
-      })
+    if (isPreAggregated) {
+      // 预聚合数据：items 已是最终值，只累加数量
+      if (row.items && row.items.length > 0) {
+        o.items = row.items
+        o.totalQty = row.quantity || row.items.reduce((s, i) => s + (i.quantity || 1), 0)
+      } else {
+        o.totalQty += row.quantity || 1
+      }
+      // 覆盖字段
+      if (row.store_name) o.store_name = row.store_name
+      if (row.country) o.country = row.country
+      if (row.order_date) o.order_date = row.order_date
+      if (row.product_name) o.product_name = row.product_name
+      if (row.product_category) o.product_category = row.product_category
+    } else {
+      // 原始马帮行：逐行累加
+      o.totalQty += row.quantity || 1
+      if (row.sku || row.product_name) {
+        o.items.push({
+          sku: row.sku || '',
+          product_name: row.product_name || '',
+          quantity: row.quantity || 1,
+        })
+      }
+      if (row.store_name) o.store_name = row.store_name
+      if (row.country) o.country = row.country
+      if (row.order_date) o.order_date = row.order_date
     }
-    // 后行覆盖先行（马帮多行同订单情况）
-    if (row.store_name) o.store_name = row.store_name
-    if (row.country) o.country = row.country
-    if (row.order_date) o.order_date = row.order_date
   }
 
   const orderNos = [...orderMap.keys()]
@@ -83,7 +110,7 @@ export async function importOrders(userId, rawRows) {
       store_name: order.store_name || '',
       country: normalizeCountry(order.country),
       province: order.province || '',
-      product_name: order.items.map(i => i.product_name).filter(Boolean).join('; ') || '',
+      product_name: order.product_name || order.items.map(i => i.product_name).filter(Boolean).join('; ') || '',
       product_category: order.product_category || '未分类',
       quantity: order.totalQty,
       total_amount: order.total_amount || 0,
@@ -154,25 +181,43 @@ export async function findExistingOrders(userId, orderNos) {
   return set
 }
 
-/** 获取用户的所有订单 */
+/** 获取用户的所有订单（分页，不受 1000 行限制） */
 export async function getOrders(userId) {
-  const { data } = await supabase
-    .from('orders')
-    .select('*')
-    .eq('user_id', userId)
-    .order('order_date', { ascending: false })
-    .limit(100000)
-  return data || []
+  const PAGE = 1000
+  const all = []
+  let from = 0
+  while (true) {
+    const { data } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('user_id', userId)
+      .order('order_date', { ascending: false })
+      .range(from, from + PAGE - 1)
+    if (!data || data.length === 0) break
+    all.push(...data)
+    if (data.length < PAGE) break
+    from += PAGE
+  }
+  return all
 }
 
-/** 获取用户的所有 SKU 明细 */
+/** 获取用户的所有 SKU 明细（分页，不受 1000 行限制） */
 export async function getOrderItems(userId) {
-  const { data } = await supabase
-    .from('order_items')
-    .select('*')
-    .eq('user_id', userId)
-    .limit(100000)
-  return data || []
+  const PAGE = 1000
+  const all = []
+  let from = 0
+  while (true) {
+    const { data } = await supabase
+      .from('order_items')
+      .select('*')
+      .eq('user_id', userId)
+      .range(from, from + PAGE - 1)
+    if (!data || data.length === 0) break
+    all.push(...data)
+    if (data.length < PAGE) break
+    from += PAGE
+  }
+  return all
 }
 
 /** 获取带 SKU 明细的完整订单数据（联合查询） */
