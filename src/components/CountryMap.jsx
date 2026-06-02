@@ -1,42 +1,37 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+/**
+ * CountryMap — 世界填色地图（Choropleth）
+ * 
+ * 从散点图升级为**标准填色图**，用国家颜色深浅表示出库量。
+ * 所有国家映射统一走 lib/countries.js。
+ */
+
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import ReactECharts from 'echarts-for-react'
 import * as echarts from 'echarts'
-import { getCoords } from '../lib/worldmap'
-
-const COLORS = ['#6366f1','#8b5cf6','#a855f7','#ec4899','#f43f5e','#f97316','#eab308','#10b981','#06b6d4','#3b82f6']
-
-// 中文→英文国家名映射（供 ECharts world.json 使用）
-const CN_TO_EN = {
-  '美国':'United States','英国':'United Kingdom','加拿大':'Canada','德国':'Germany',
-  '法国':'France','澳大利亚':'Australia','日本':'Japan','韩国':'South Korea',
-  '意大利':'Italy','西班牙':'Spain','荷兰':'Netherlands','巴西':'Brazil',
-  '墨西哥':'Mexico','新加坡':'Singapore','印度':'India','新西兰':'New Zealand',
-  '瑞典':'Sweden','瑞士':'Switzerland','挪威':'Norway','丹麦':'Denmark',
-  '波兰':'Poland','俄罗斯':'Russia','泰国':'Thailand','越南':'Vietnam',
-  '马来西亚':'Malaysia','菲律宾':'Philippines','印度尼西亚':'Indonesia',
-  '土耳其':'Turkey','沙特阿拉伯':'Saudi Arabia','阿联酋':'United Arab Emirates',
-  '爱尔兰':'Ireland','奥地利':'Austria','比利时':'Belgium','葡萄牙':'Portugal',
-  '捷克':'Czech Rep.','希腊':'Greece','匈牙利':'Hungary','芬兰':'Finland',
-  '罗马尼亚':'Romania','乌克兰':'Ukraine','以色列':'Israel','南非':'South Africa',
-  '阿根廷':'Argentina','哥伦比亚':'Colombia','埃及':'Egypt','中国':'China',
-  '台湾':'Taiwan','香港':'Hong Kong',
-}
+import { getEnglishName, getCountryInfo } from '../lib/countries'
 
 export default function CountryMap({ orders }) {
   const [selectedCountry, setSelectedCountry] = useState(null)
   const [mapLoaded, setMapLoaded] = useState(false)
+  const [mapError, setMapError] = useState(null)
   const chartRef = useRef(null)
 
-  // 加载本地世界地图 GeoJSON
+  // 加载 GeoJSON 并注册地图
   useEffect(() => {
     fetch('/maps/world.json')
-      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json() })
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        return r.json()
+      })
       .then(data => {
+        if (!data || !data.features) throw new Error('GeoJSON 格式异常')
         echarts.registerMap('world', data)
         setMapLoaded(true)
+        console.log(`✅ 世界地图加载完成: ${data.features.length} 个国家/地区`)
       })
       .catch(err => {
-        console.warn('地图加载失败:', err.message)
+        console.warn('⚠️ 地图加载失败:', err.message)
+        setMapError(err.message)
         setMapLoaded(true) // 即使失败也让页面显示
       })
   }, [])
@@ -52,132 +47,176 @@ export default function CountryMap({ orders }) {
       amtMap[c] = (amtMap[c] || 0) + parseFloat(o.total_amount || 0)
       totalQty += o.quantity
     })
-    return { qtyMap, amtMap, entries: Object.entries(qtyMap).sort((a, b) => b[1] - a[1]), totalQty }
+    return {
+      qtyMap,
+      amtMap,
+      entries: Object.entries(qtyMap).sort((a, b) => b[1] - a[1]),
+      totalQty,
+    }
   }, [orders])
 
-  // 地图选项
+  // 地图选项 — 填色图
   const mapOption = useMemo(() => {
-    if (!mapLoaded) return {}
+    if (!mapLoaded || mapError) return {}
+
     const maxVal = Math.max(...Object.values(countryStats.qtyMap), 1)
-    // 散点数据：用英文名匹配地图特征
-    const scatterData = Object.entries(countryStats.qtyMap).map(([cn, qty]) => {
-      const en = CN_TO_EN[cn] || cn
-      const coords = getCoords(cn)
-      if (!coords) return null
-      return { name: en, cnName: cn, value: [...coords, qty], amount: countryStats.amtMap[cn] || 0 }
+
+    // 构建 choropleth 数据：用英文名匹配地图特征
+    const mapData = Object.entries(countryStats.qtyMap).map(([cn, qty]) => {
+      const en = getEnglishName(cn)
+      if (!en) return null
+      return { name: en, cnName: cn, value: qty }
     }).filter(Boolean)
 
     return {
       tooltip: {
         trigger: 'item',
         formatter: (params) => {
-          const d = params.data || params
-          const name = d.cnName || d.name || ''
-          const val = d.value?.[2] || 0
-          const amt = d.amount || 0
+          const cn = params.data?.cnName || params.name || ''
+          const val = params.data?.value || params.value || 0
+          const amt = countryStats.amtMap[cn] || 0
           const pct = ((val / Math.max(1, countryStats.totalQty)) * 100).toFixed(1)
-          return `<strong>${name}</strong><br/>
-            📦 订单量：${val.toLocaleString()} 件<br/>
+          return `<strong>${cn}</strong><br/>
+            📦 出库量：${val.toLocaleString()} 件<br/>
             💰 销售额：¥${amt.toLocaleString()}<br/>
             📊 占比：${pct}%`
         }
       },
       visualMap: {
-        min: 0, max: maxVal,
-        text: ['多','少'], textStyle: { color: '#64748b', fontSize: 11 },
-        inRange: { color: ['#e0e7ff','#818cf8','#4f46e5','#3730a3'] },
-        calculable: true, left: 20, bottom: 20,
-      },
-      geo: {
-        map: 'world', roam: true,
-        label: { show: false },
-        itemStyle: {
-          areaColor: '#f1f5f9', borderColor: '#cbd5e1', borderWidth: 0.5,
+        min: 0,
+        max: maxVal,
+        text: ['高', '低'],
+        textStyle: { color: '#64748b', fontSize: 11 },
+        inRange: {
+          color: ['#e0e7ff', '#a5b4fc', '#818cf8', '#6366f1', '#4f46e5', '#3730a3']
         },
-        emphasis: {
-          itemStyle: { areaColor: '#dbeafe' },
-          label: { show: true, fontSize: 11, color: '#0f172a' },
-        },
+        calculable: true,
+        left: 16,
+        bottom: 16,
+        itemWidth: 12,
+        itemHeight: 100,
       },
       series: [{
-        type: 'scatter',
-        coordinateSystem: 'geo',
-        data: scatterData,
-        symbolSize: (val) => Math.max(8, Math.sqrt(val[2] / Math.max(1, maxVal)) * 40),
-        encode: { value: 2 },
+        type: 'map',
+        map: 'world',
+        roam: true,
+        selectedMode: false,
         label: {
           show: true,
-          formatter: (p) => p.data.cnName,
-          fontSize: 11, color: '#0f172a', fontWeight: 600,
-          position: 'right',
+          fontSize: 9,
+          color: '#334155',
         },
         emphasis: {
-          label: { show: true, fontSize: 13, fontWeight: 'bold', color: '#4f46e5' },
-          itemStyle: { shadowBlur: 10, shadowColor: 'rgba(99,102,241,0.5)', borderColor: '#fff', borderWidth: 2 },
+          label: {
+            show: true,
+            fontSize: 13,
+            fontWeight: 'bold',
+            color: '#1e293b',
+          },
+          itemStyle: {
+            areaColor: '#dbeafe',
+            shadowBlur: 8,
+            shadowColor: 'rgba(99,102,241,0.3)',
+          },
         },
-        itemStyle: { color: '#6366f1', shadowBlur: 6, shadowColor: 'rgba(99,102,241,0.3)' },
+        itemStyle: {
+          borderColor: '#cbd5e1',
+          borderWidth: 0.5,
+          areaColor: '#f1f5f9',
+        },
+        data: mapData,
+        // 名字映射：如果 GeoJSON 里的名字和我们的英文名不完全一致，
+        // 用 nameMap 做映射
       }],
     }
-  }, [mapLoaded, countryStats])
+  }, [mapLoaded, mapError, countryStats])
 
-  const handleMapClick = (params) => {
-    if (params.data?.cnName) {
-      const name = params.data.cnName
-      setSelectedCountry({
-        name,
-        qty: countryStats.qtyMap[name] || 0,
-        amt: countryStats.amtMap[name] || 0,
-      })
+  const handleMapClick = useCallback((params) => {
+    const cn = params.data?.cnName
+    if (cn && countryStats.qtyMap[cn]) {
+      setSelectedCountry(cn)
     }
+  }, [countryStats])
+
+  // 如果没数据
+  if (countryStats.entries.length === 0) {
+    return (
+      <div className="country-map-module">
+        <div className="map-header">
+          <h4>🌍 全球订单分布</h4>
+          <span className="map-subtitle">暂无数据</span>
+        </div>
+      </div>
+    )
   }
 
   return (
     <div className="country-map-module">
       <div className="map-header">
         <h4>🌍 全球订单分布</h4>
-        <span className="map-subtitle">气泡越大 = 订单越多 | 点击国家查看详情</span>
+        <span className="map-subtitle">颜色越深 = 出库越多 | 点击国家查看详情</span>
       </div>
 
-      <div className="map-container">
-        {!mapLoaded ? (
-          <div className="empty-sm" style={{height:400,display:'flex',alignItems:'center',justifyContent:'center'}}>⏳ 加载地图中...</div>
-        ) : (
-          <ReactECharts ref={chartRef} option={mapOption} style={{height:440}}
-            opts={{renderer:'canvas'}}
-            onEvents={{ click: handleMapClick }} />
-        )}
-      </div>
+      <div className="map-container" style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 400 }}>
+          {!mapLoaded ? (
+            <div className="empty-sm" style={{ height: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              ⏳ 加载地图中...
+            </div>
+          ) : mapError ? (
+            <div className="empty-sm" style={{ height: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8 }}>
+              <span>⚠️ 地图加载失败</span>
+              <span style={{ fontSize: 12, color: '#94a3b8' }}>{mapError}</span>
+              <span style={{ fontSize: 12, color: '#94a3b8' }}>请检查 /maps/world.json 文件</span>
+            </div>
+          ) : (
+            <ReactECharts
+              ref={chartRef}
+              option={mapOption}
+              style={{ height: 420 }}
+              opts={{ renderer: 'canvas' }}
+              onEvents={{ click: handleMapClick }}
+            />
+          )}
+        </div>
 
-      {/* 国家排行 */}
-      <div className="map-ranks">
-        <h4>国家排行 TOP 10</h4>
-        <div className="map-rank-list">
-          {countryStats.entries.slice(0, 10).map(([c, qty], i) => {
-            const amt = countryStats.amtMap[c] || 0
-            const pct = ((qty / Math.max(1, countryStats.totalQty)) * 100).toFixed(1)
-            return (
-              <div key={c} className={`map-rank-item ${selectedCountry?.name === c ? 'active' : ''}`}
-                onClick={() => setSelectedCountry({ name: c, qty, amt })}>
-                <span className="mr-idx">{i + 1}</span>
-                <span className="mr-flag">🌍</span>
-                <span className="mr-name">{c}</span>
-                <div className="mr-bar-track">
-                  <div className="mr-bar" style={{ width: `${pct}%`, background: COLORS[i % COLORS.length] }} />
+        {/* 侧边国家排行 */}
+        <div className="map-ranks" style={{ width: 280, flexShrink: 0 }}>
+          <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>国家排行 TOP 10</h4>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {countryStats.entries.slice(0, 10).map(([c, qty], i) => {
+              const pct = ((qty / Math.max(1, countryStats.totalQty)) * 100).toFixed(1)
+              const colors = ['#6366f1', '#8b5cf6', '#a855f7', '#ec4899', '#f43f5e', '#f97316', '#eab308', '#10b981', '#06b6d4', '#3b82f6']
+              return (
+                <div key={c}
+                  className={`map-rank-item ${selectedCountry === c ? 'active' : ''}`}
+                  onClick={() => setSelectedCountry(c)}
+                  style={{ cursor: 'pointer' }}>
+                  <span style={{ width: 18, fontWeight: 700, color: '#94a3b8', fontSize: 10, textAlign: 'center' }}>{i + 1}</span>
+                  <span style={{ fontSize: 14 }}>🌍</span>
+                  <span style={{ width: 70, flexShrink: 0, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 12 }}>{c}</span>
+                  <div style={{ flex: 1, height: 8, background: '#f1f5f9', borderRadius: 6, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', borderRadius: 6, width: `${pct}%`, background: colors[i % colors.length], minWidth: 4 }} />
+                  </div>
+                  <span style={{ width: 40, textAlign: 'right', fontWeight: 600, color: '#475569', fontSize: 11 }}>{pct}%</span>
+                  <span style={{ fontSize: 11, color: '#94a3b8', width: 50, textAlign: 'right' }}>{qty.toLocaleString()}</span>
                 </div>
-                <span className="mr-pct">{pct}%</span>
-                <span className="mr-qty">{qty.toLocaleString()}</span>
-              </div>
-            )
-          })}
+              )
+            })}
+          </div>
         </div>
       </div>
 
+      {/* 选中国家后弹出详情 */}
       {selectedCountry && (
         <CountryDetailModal
-          country={selectedCountry.name} orders={orders}
-          qty={selectedCountry.qty} amt={selectedCountry.amt}
+          country={selectedCountry}
+          orders={orders}
+          qty={countryStats.qtyMap[selectedCountry] || 0}
+          amt={countryStats.amtMap[selectedCountry] || 0}
           totalQty={countryStats.totalQty}
-          onClose={() => setSelectedCountry(null)} />
+          onClose={() => setSelectedCountry(null)}
+        />
       )}
     </div>
   )
@@ -212,9 +251,9 @@ function CountryDetailModal({ country, orders, qty, amt, totalQty, onClose }) {
     skuMap[sku] = (skuMap[sku] || 0) + o.quantity
   })
   const skuSorted = Object.entries(skuMap).sort((a, b) => b[1] - a[1]).slice(0, 20)
-
   const topCat = catSorted[0]
   const catDropNote = growth < -5 ? `下降主要来自${topCat?.[0] || '部分'}品类。` : ''
+  const COLORS = ['#6366f1', '#8b5cf6', '#a855f7', '#ec4899', '#f43f5e', '#f97316', '#eab308', '#10b981', '#06b6d4', '#3b82f6']
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -223,7 +262,7 @@ function CountryDetailModal({ country, orders, qty, amt, totalQty, onClose }) {
         <div className="country-detail-header">
           <h3>🌍 {country}</h3>
           <div className="cd-stats">
-            <div className="cd-stat"><span className="cd-num">{qty.toLocaleString()}</span><span className="cd-label">订单量</span></div>
+            <div className="cd-stat"><span className="cd-num">{qty.toLocaleString()}</span><span className="cd-label">出库量</span></div>
             <div className="cd-stat"><span className="cd-num">¥{amt.toLocaleString()}</span><span className="cd-label">销售额</span></div>
             <div className="cd-stat"><span className="cd-num">¥{avgPrice}</span><span className="cd-label">客单价</span></div>
             <div className="cd-stat"><span className={`cd-num ${growth >= 0 ? 'up' : 'down'}`}>{growth}%</span><span className="cd-label">增长率</span></div>
@@ -231,13 +270,14 @@ function CountryDetailModal({ country, orders, qty, amt, totalQty, onClose }) {
         </div>
 
         <div className="cd-section">
-          <h4>近30天订单趋势</h4>
+          <h4>近30天出库趋势</h4>
           <ReactECharts option={{
             tooltip: { trigger: 'axis' },
             grid: { left: 40, right: 10, top: 10, bottom: 20 },
             xAxis: { type: 'category', data: dayEntries.filter((_, i) => i % 5 === 0).map(([d]) => d.slice(5)), axisLabel: { fontSize: 10 } },
             yAxis: { type: 'value', splitLine: { lineStyle: { color: '#f1f5f9' } } },
-            series: [{ type: 'line', data: dayEntries.map(([, v]) => v), smooth: true, symbol: 'none',
+            series: [{
+              type: 'line', data: dayEntries.map(([, v]) => v), smooth: true, symbol: 'none',
               lineStyle: { color: '#6366f1', width: 2 },
               areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(99,102,241,0.3)' }, { offset: 1, color: 'rgba(99,102,241,0.02)' }] } }
             }]
@@ -248,7 +288,8 @@ function CountryDetailModal({ country, orders, qty, amt, totalQty, onClose }) {
           <h4>品类分布</h4>
           <ReactECharts option={{
             tooltip: { trigger: 'item', formatter: '{b}: {c}件 ({d}%)' },
-            series: [{ type: 'pie', radius: ['30%', '55%'],
+            series: [{
+              type: 'pie', radius: ['30%', '55%'],
               data: catSorted.map(([c, v], i) => ({ name: c, value: v, itemStyle: { color: COLORS[i % COLORS.length] } })),
               label: { fontSize: 11, formatter: '{b}\n{d}%' },
             }]
@@ -256,7 +297,7 @@ function CountryDetailModal({ country, orders, qty, amt, totalQty, onClose }) {
         </div>
 
         <div className="cd-section">
-          <h4>SKU排行 TOP 20</h4>
+          <h4>SKU排行 TOP 10</h4>
           <div className="cd-sku-list">
             {skuSorted.slice(0, 10).map(([s, v], i) => (
               <div key={i} className="cd-sku-item">
@@ -271,7 +312,7 @@ function CountryDetailModal({ country, orders, qty, amt, totalQty, onClose }) {
         <div className="cd-ai-section">
           <h4>🧠 AI 分析</h4>
           <p className="cd-ai-text">
-            {country}市场占总订单 <strong>{pct}%</strong>。
+            {country}市场占总出库 <strong>{pct}%</strong>。
             近30天增长率为 <strong className={growth >= 0 ? 'up' : 'down'}>{growth}%</strong>。
             {catDropNote}
             {skuSorted[0] && `热销SKU为 ${skuSorted[0][0]}（${skuSorted[0][1]}件）。`}

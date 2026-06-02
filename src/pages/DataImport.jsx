@@ -1,0 +1,319 @@
+/**
+ * 导入中心 V2
+ *
+ * 增强功能：
+ *   1. 导入统计（原始记录/订单/SKU/新增/重复/国家标准化/空号填充）
+ *   2. 数据质量检测（导入前检查 SKU/国家/日期/数量异常）
+ *   3. 重复导入提示（新增/重复/跳过 清晰展示）
+ */
+
+import { useState, useCallback, useRef } from 'react'
+import { supabase } from '../lib/supabase'
+import { importOrders } from '../lib/database'
+import { classifyProduct } from '../lib/classifier'
+import { normalizeCountry } from '../lib/countries'
+import { findKey, formatExcelDate, getWeekday, getMonth } from '../lib/charts'
+
+export default function DataImport({ onImported }) {
+  const [dragOver, setDragOver] = useState(false)
+  const [parsing, setParsing] = useState(false)
+  const [preview, setPreview] = useState(null)
+  const [error, setError] = useState('')
+  const fileRef = useRef(null)
+
+  const parseFile = useCallback(async (file) => {
+    setParsing(true)
+    setError('')
+    try {
+      const XLSX = await import('xlsx')
+      const buf = await file.arrayBuffer()
+      const wb = XLSX.default.read(buf, { type: 'array' })
+      const sheet = wb.Sheets[wb.SheetNames[0]]
+      const rawRows = XLSX.default.utils.sheet_to_json(sheet, { header: 1, defval: '' })
+      if (!rawRows || rawRows.length < 2) throw new Error('表格中没有数据')
+
+      const header = rawRows[0]
+      const dataRows = rawRows.slice(1).filter(r => r.some(c => c !== ''))
+      if (dataRows.length === 0) throw new Error('表格中没有数据')
+
+      const isMabang = header.some(h => ['订单编号','SKU','店铺名','订单商品名称','发货时间'].includes(h))
+
+      let orders, cleanInfo, qualityIssues
+      if (isMabang) {
+        const result = processMabang(header, dataRows)
+        orders = result.orders
+        cleanInfo = result.cleanInfo
+        qualityIssues = result.qualityIssues
+      } else {
+        const keys = header
+        const fieldMap = {
+          order_no: findKey(keys, ['订单号','订单编号','order_no','OrderNo']),
+          product_category: findKey(keys, ['品类','产品大类','分类','category']),
+          product_name: findKey(keys, ['产品名称','商品名称','product_name']),
+          quantity: findKey(keys, ['数量','出库量','qty','Qty','quantity']),
+          order_date: findKey(keys, ['日期','下单日期','出库日期','date','Date']),
+          store_name: findKey(keys, ['店铺名','店铺','store_name']),
+          country: findKey(keys, ['国家','country']),
+        }
+
+        // 质量检测
+        qualityIssues = { emptySku: 0, emptyCountry: 0, emptyDate: 0, badQty: 0, details: [] }
+
+        orders = dataRows.map((row, i) => {
+          const get = (k) => k ? String(row[header.indexOf(k)] ?? '') : ''
+          const dateStr = get(fieldMap.order_date)
+          const rawCountry = get(fieldMap.country)
+          const rawQty = parseInt(get(fieldMap.quantity)) || 0
+
+          if (!get(fieldMap.product_name) && !get(fieldMap.order_no)) qualityIssues.emptySku++
+          if (!rawCountry) qualityIssues.emptyCountry++
+          if (!dateStr) qualityIssues.emptyDate++
+          if (rawQty <= 0) qualityIssues.badQty++
+
+          return {
+            order_no: get(fieldMap.order_no) || `IMP-${Date.now()}-${i}`,
+            store_name: get(fieldMap.store_name),
+            country: normalizeCountry(rawCountry),
+            province: '',
+            product_name: get(fieldMap.product_name),
+            product_sku: '',
+            product_category: get(fieldMap.product_category) || '未分类',
+            quantity: rawQty || 1,
+            order_date: formatExcelDate(dateStr),
+            weekday: getWeekday(dateStr),
+            month: getMonth(dateStr),
+            total_amount: 0,
+            items: [],
+          }
+        })
+        cleanInfo = { rawRows: dataRows.length, mergedOrders: orders.length, filledDown: 0, normalizedCountries: 0, itemsCount: 0 }
+      }
+
+      setPreview({ orders: orders.slice(0, 20), total: orders.length, allOrders: orders, cleanInfo, isMabang, qualityIssues })
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setParsing(false)
+    }
+  }, [])
+
+  const handleImport = async () => {
+    if (!preview) return
+    setParsing(true)
+    setError('')
+    try {
+      const user = (await supabase.auth.getUser()).data.user
+      const result = await importOrders(user.id, preview.allOrders)
+      setPreview(null)
+      onImported(result)
+    } catch (err) {
+      setError('导入失败：' + err.message)
+    } finally {
+      setParsing(false)
+    }
+  }
+
+  const handleDrop = (e) => { e.preventDefault(); setDragOver(false); const file = e.dataTransfer.files[0]; if (file) parseFile(file) }
+  const handleChange = (e) => { const file = e.target.files[0]; if (file) parseFile(file) }
+
+  return (
+    <div className="import-page">
+      <div className="import-card">
+        <div className="import-header">
+          <h3>📥 导入出库数据</h3>
+          <p>支持马帮ERP原始文件，自动清洗、填充、聚合、去重、标准化</p>
+        </div>
+        {!preview ? (
+          <div className={`dropzone ${dragOver ? 'dropzone-active' : ''}`}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={handleDrop} onClick={() => fileRef.current?.click()}>
+            <div className="dropzone-icon">
+              <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+                <rect x="10" y="6" width="36" height="44" rx="6" stroke="#6366f1" strokeWidth="2" fill="rgba(99,102,241,0.05)"/>
+                <path d="M28 20v18M19 29l9 9 9-9" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <p className="dropzone-text">{parsing ? '⏳ 解析中...' : '拖拽 Excel / CSV 到此处'}</p>
+            <p className="dropzone-hint">支持 .xlsx .xls .csv 格式</p>
+            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleChange} hidden />
+            {!parsing && <button className="btn-ghost" onClick={(e) => { e.stopPropagation(); fileRef.current?.click() }}>选择文件</button>}
+          </div>
+        ) : (
+          <div className="preview-area">
+            <div className="preview-header">
+              <span className="preview-count">
+                🚚 {preview.isMabang ? '马帮文件' : 'Excel文件'} · <strong>{preview.total}</strong> 笔订单
+                <span className="mabang-badge">已清洗</span>
+              </span>
+              <div className="preview-actions">
+                <button className="btn-ghost" onClick={() => setPreview(null)}>取消</button>
+                <button className="btn-primary-sm" onClick={handleImport} disabled={parsing}>
+                  {parsing ? '⏳ 导入中...' : '✅ 确认导入'}
+                </button>
+              </div>
+            </div>
+
+            {/* 数据质量检测 */}
+            {preview.qualityIssues && (
+              <div className="clean-report">
+                <div className="clean-stat">
+                  <span className="clean-label">SKU 为空</span>
+                  <span className="clean-val" style={preview.qualityIssues.emptySku > 0 ? {color:'#dc2626'} : {}}>
+                    {preview.qualityIssues.emptySku} 行
+                  </span>
+                </div>
+                <div className="clean-stat">
+                  <span className="clean-label">国家为空</span>
+                  <span className="clean-val" style={preview.qualityIssues.emptyCountry > 0 ? {color:'#dc2626'} : {}}>
+                    {preview.qualityIssues.emptyCountry} 行
+                  </span>
+                </div>
+                <div className="clean-stat">
+                  <span className="clean-label">日期为空</span>
+                  <span className="clean-val" style={preview.qualityIssues.emptyDate > 0 ? {color:'#dc2626'} : {}}>
+                    {preview.qualityIssues.emptyDate} 行
+                  </span>
+                </div>
+                <div className="clean-stat">
+                  <span className="clean-label">数量异常</span>
+                  <span className="clean-val" style={preview.qualityIssues.badQty > 0 ? {color:'#dc2626'} : {}}>
+                    {preview.qualityIssues.badQty} 行
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* 清洗统计 */}
+            <div className="clean-report">
+              <div className="clean-stat"><span className="clean-label">原始记录数</span><span className="clean-val">{preview.cleanInfo.rawRows}</span></div>
+              <div className="clean-stat"><span className="clean-label">合并后订单</span><span className="clean-val">{preview.cleanInfo.mergedOrders}</span></div>
+              <div className="clean-stat"><span className="clean-label">空号填充</span><span className="clean-val">{preview.cleanInfo.filledDown} 行</span></div>
+              <div className="clean-stat"><span className="clean-label">国家标准化</span><span className="clean-val">{preview.cleanInfo.normalizedCountries} 条</span></div>
+              <div className="clean-stat"><span className="clean-label">SKU 明细</span><span className="clean-val">{preview.cleanInfo.itemsCount} 条</span></div>
+              <div className="clean-stat"><span className="clean-label">存储维度</span><span className="clean-val">双表结构 ✅</span></div>
+            </div>
+
+            <div className="field-mapping-bar">
+              <span className="mapping-chip"><span className="chip-field">订单编号</span> 去重检测</span>
+              <span className="mapping-chip"><span className="chip-field">SKU</span> 自动拆分为明细</span>
+              <span className="mapping-chip"><span className="chip-field">国家</span> 标准化（US→美国）</span>
+              <span className="mapping-chip"><span className="chip-field">发货时间</span> 提取日/星期/月份</span>
+            </div>
+
+            <div className="preview-table-wrap">
+              <table className="preview-table">
+                <thead><tr><th>订单号</th><th>店铺</th><th>国家</th><th>商品/SKU</th><th>数量</th><th>日期</th><th>星期</th></tr></thead>
+                <tbody>{preview.orders.map((o, i) => (
+                  <tr key={i}>
+                    <td><span className="orderno-sm">{o.order_no}</span></td>
+                    <td>{o.store_name}</td>
+                    <td>{o.country}</td>
+                    <td style={{maxWidth:200,overflow:'hidden',textOverflow:'ellipsis'}}>{o.product_name}</td>
+                    <td>{o.quantity}</td>
+                    <td>{o.order_date}</td>
+                    <td>{o.weekday}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+              {preview.total > 20 && <p className="preview-more">...还有 {preview.total - 20} 笔订单</p>}
+            </div>
+            {error && <div className="error-msg">{error}</div>}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/* ========== 马帮处理核心 ========== */
+function processMabang(header, dataRows) {
+  const idx = (name) => header.indexOf(name)
+
+  const orderNoIdx = idx('订单编号')
+  const storeIdx = idx('店铺名')
+  const skuTotalIdx = idx('SKU总数量')
+  const countryIdx = idx('国家')
+  const provinceIdx = idx('所属地区（省/州）')
+  const skuIdx = idx('SKU')
+  const productNameIdx = idx('订单商品名称')
+  const dateIdx = idx('发货时间')
+
+  let lastOrderNo = ''
+  let filledDown = 0
+  let normalizedCountries = 0
+  let emptySku = 0
+  let emptyCountry = 0
+  let emptyDate = 0
+  let badQty = 0
+
+  const filled = dataRows.map(row => {
+    const rawNo = row[orderNoIdx]
+    if (rawNo && rawNo.toString().trim()) lastOrderNo = rawNo.toString().trim()
+    else filledDown++
+    const rawCountry = row[countryIdx]
+    const normCountry = normalizeCountry(rawCountry)
+    if (normCountry !== (rawCountry || '').toString().trim() && rawCountry) normalizedCountries++
+    const rawSku = String(row[skuIdx] || '')
+    const rawQty = parseInt(row[skuTotalIdx]) || 0
+    const rawDate = row[dateIdx]
+
+    if (!rawSku) emptySku++
+    if (!rawCountry) emptyCountry++
+    if (!rawDate) emptyDate++
+    if (rawQty <= 0) badQty++
+
+    return {
+      order_no: lastOrderNo,
+      store_name: String(row[storeIdx] || ''),
+      country: normCountry,
+      province: String(row[provinceIdx] || ''),
+      sku: rawSku,
+      product_name: String(row[productNameIdx] || ''),
+      quantity: rawQty || 1,
+      rawDate,
+      product_category: '',
+    }
+  })
+
+  // 按订单号聚合
+  const orderMap = {}
+  let itemsCount = 0
+  filled.forEach(row => {
+    if (!row.order_no) return
+    if (!orderMap[row.order_no]) {
+      orderMap[row.order_no] = {
+        order_no: row.order_no, store_name: row.store_name, country: row.country,
+        province: row.province, totalQty: 0, items: [], productNames: [], rawDate: row.rawDate, product_category: '',
+      }
+    }
+    const o = orderMap[row.order_no]
+    o.totalQty += row.quantity
+    if (row.sku || row.product_name) {
+      o.items.push({ sku: row.sku, product_name: row.product_name, quantity: row.quantity })
+      itemsCount++
+    }
+    if (row.product_name && !o.productNames.includes(row.product_name)) o.productNames.push(row.product_name)
+    if (row.store_name) o.store_name = row.store_name
+    if (row.country) o.country = row.country
+    if (row.rawDate && !o.rawDate) o.rawDate = row.rawDate
+    if (row.product_category && !o.product_category) o.product_category = row.product_category
+  })
+
+  const orders = Object.values(orderMap).map(o => {
+    const dateStr = formatExcelDate(o.rawDate)
+    return {
+      order_no: o.order_no, store_name: o.store_name, country: o.country, province: o.province,
+      product_name: o.productNames.join('; ') || o.items.map(i => i.product_name).filter(Boolean).join(', '),
+      product_sku: o.items.map(i => i.sku).filter(Boolean).join(';'),
+      product_category: o.product_category || classifyProduct(o.productNames[0] || o.items[0]?.sku || ''),
+      quantity: o.totalQty, order_date: dateStr, total_amount: 0, items: o.items,
+    }
+  })
+
+  return {
+    orders,
+    cleanInfo: { rawRows: dataRows.length, mergedOrders: orders.length, filledDown, normalizedCountries, itemsCount },
+    qualityIssues: { emptySku, emptyCountry, emptyDate, badQty },
+  }
+}
