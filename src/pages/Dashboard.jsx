@@ -76,6 +76,8 @@ export default function Dashboard({ session }) {
   const effectiveOrderItems = getEffectiveOrderItems(orders, orderItems)
   const [activeNav, setActiveNav] = useState('overview')
   const [showRules, setShowRules] = useState(false)
+  const activeItem = NAV_ITEMS.find(item => item.key === activeNav) || NAV_ITEMS[0]
+  const latestDate = orders.map(o => o.order_date).filter(Boolean).sort().at(-1) || '-'
 
   useEffect(() => {
     if (session?.user) {
@@ -141,16 +143,16 @@ export default function Dashboard({ session }) {
 
   return (
     <div className="dashboard">
-      {/* 顶部导航 */}
-      <header className="topbar">
-        <div className="topbar-left">
+      {/* 侧边导航 */}
+      <aside className="sidebar">
+        <div className="sidebar-brand">
           <div className="logo-box">LO</div>
           <div>
-            <h2>Lucky Order 3.0</h2>
-            <span className="badge">跨境电商运营分析</span>
+            <h2>Lucky Order</h2>
+            <span>出库数据分析平台</span>
           </div>
         </div>
-        <div className="topbar-center">
+        <nav className="sidebar-nav">
           {NAV_ITEMS.map(item => (
             <button
               key={item.key}
@@ -160,55 +162,70 @@ export default function Dashboard({ session }) {
               {item.icon} {item.label}
             </button>
           ))}
+        </nav>
+        <div className="sidebar-footer">
+          <span>数据更新</span>
+          <strong>{latestDate}</strong>
         </div>
-        <div className="topbar-right">
-          <button className="btn-outline-sm" onClick={() => setShowRules(true)} title="智能分类规则">🏷️ 规则</button>
-          <button className="btn-outline-sm" onClick={handleExportCSV} disabled={orders.length === 0}>
-            📥 导出明细
-          </button>
-          <div className="user-avatar">{user.email?.charAt(0).toUpperCase()}</div>
-          <span className="user-email">{user.email?.split('@')[0]}</span>
-          <button className="btn-outline-sm" onClick={handleLogout}>退出</button>
-        </div>
-      </header>
+      </aside>
 
-      {/* 主内容区 */}
-      <div className="dashboard-body">
-        <ContentErrorBoundary resetKey={activeNav}>
-          {activeNav === 'overview' && (
-            <OverviewDashboard
-              orders={orders}
-              orderItems={effectiveOrderItems}
-              loading={loading}
-              onRefresh={loadOrders}
-            />
-          )}
-          {activeNav === 'sku' && (
-            <SkuCenter orders={orders} orderItems={effectiveOrderItems} />
-          )}
-          {activeNav === 'segment' && (
-            <SegmentAnalysis orders={orders} orderItems={effectiveOrderItems} />
-          )}
-          {activeNav === 'new' && (
-            <NewProductCenter orders={orders} orderItems={effectiveOrderItems} />
-          )}
-          {activeNav === 'country' && (
-            <CountryCenter orders={orders} orderItems={effectiveOrderItems} />
-          )}
-          {activeNav === 'store' && (
-            <StoreCenter orders={orders} orderItems={effectiveOrderItems} />
-          )}
-          {activeNav === 'ai' && (
-            <AiInsightCenter orders={orders} orderItems={effectiveOrderItems} />
-          )}
-          {activeNav === 'import' && (
-            <DataImport onImported={handleImported} />
-          )}
-          {activeNav === 'data' && (
-            <DataCenter user={user} orders={orders} onRefresh={() => { loadOrders(); loadItems() }} />
-          )}
-        </ContentErrorBoundary>
-      </div>
+      <main className="dashboard-main">
+        <header className="page-header">
+          <div>
+            <h1>{activeItem.label}</h1>
+            <p>{activeItem.key === 'overview' ? '订单、SKU、店铺和国家表现总览' : 'Lucky Order 经营分析模块'}</p>
+          </div>
+          <div className="page-actions">
+            <button className="btn-outline-sm" onClick={() => setShowRules(true)} title="人工分类 / 品类归并">🏷️ 规则</button>
+            <button className="btn-outline-sm" onClick={handleExportCSV} disabled={orders.length === 0}>
+              📥 导出明细
+            </button>
+            <div className="user-chip">
+              <div className="user-avatar">{user.email?.charAt(0).toUpperCase()}</div>
+              <span className="user-email">{user.email?.split('@')[0]}</span>
+            </div>
+            <button className="btn-outline-sm" onClick={handleLogout}>退出</button>
+          </div>
+        </header>
+
+        {/* 主内容区 */}
+        <div className="dashboard-body">
+          <ContentErrorBoundary resetKey={activeNav}>
+            {activeNav === 'overview' && (
+              <OverviewDashboard
+                orders={orders}
+                orderItems={effectiveOrderItems}
+                loading={loading}
+                onRefresh={loadOrders}
+              />
+            )}
+            {activeNav === 'sku' && (
+              <SkuCenter orders={orders} orderItems={effectiveOrderItems} />
+            )}
+            {activeNav === 'segment' && (
+              <SegmentAnalysis orders={orders} orderItems={effectiveOrderItems} />
+            )}
+            {activeNav === 'new' && (
+              <NewProductCenter orders={orders} orderItems={effectiveOrderItems} />
+            )}
+            {activeNav === 'country' && (
+              <CountryCenter orders={orders} orderItems={effectiveOrderItems} />
+            )}
+            {activeNav === 'store' && (
+              <StoreCenter orders={orders} orderItems={effectiveOrderItems} />
+            )}
+            {activeNav === 'ai' && (
+              <AiInsightCenter orders={orders} orderItems={effectiveOrderItems} />
+            )}
+            {activeNav === 'import' && (
+              <DataImport onImported={handleImported} />
+            )}
+            {activeNav === 'data' && (
+              <DataCenter user={user} orders={orders} onRefresh={() => { loadOrders(); loadItems() }} />
+            )}
+          </ContentErrorBoundary>
+        </div>
+      </main>
 
       {/* 弹窗 */}
       {showRules && (
