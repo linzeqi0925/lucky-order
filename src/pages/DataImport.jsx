@@ -302,6 +302,7 @@ function processMabang(header, dataRows) {
   const orderNoIdx = idx('订单编号')
   const storeIdx = idx('店铺名')
   const skuTotalIdx = idx('SKU总数量')
+  const platformSkuQtyIdx = idx('平台SKU数量')
   const countryIdx = idx('国家')
   const provinceIdx = idx('所属地区（省/州）')
   const skuIdx = idx('SKU')
@@ -324,7 +325,9 @@ function processMabang(header, dataRows) {
     const normCountry = normalizeCountry(rawCountry)
     if (normCountry !== (rawCountry || '').toString().trim() && rawCountry) normalizedCountries++
     const rawSku = String(row[skuIdx] || '')
-    const rawQty = parseInt(row[skuTotalIdx]) || 0
+    const rawItemQty = platformSkuQtyIdx >= 0 ? parseInt(row[platformSkuQtyIdx]) || 0 : 0
+    const rawOrderQty = skuTotalIdx >= 0 ? parseInt(row[skuTotalIdx]) || 0 : 0
+    const rawQty = rawItemQty || rawOrderQty
     const rawDate = row[dateIdx]
 
     if (!rawSku) emptySku++

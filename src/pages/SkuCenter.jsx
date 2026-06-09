@@ -13,6 +13,7 @@
 import { useState, useMemo } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { COLORS, getBarOption, getTrendOption } from '../lib/charts'
+import { isValidSkuCandidate } from '../lib/skuFallback'
 
 export default function SkuCenter({ orders, orderItems }) {
   const [activeTab, setActiveTab] = useState('ranking')
@@ -31,7 +32,7 @@ export default function SkuCenter({ orders, orderItems }) {
   const itemsWithDate = useMemo(() => {
     if (!orderItems?.length) return []
     return orderItems
-      .filter(item => item.sku && item.sku.trim())
+      .filter(item => isValidSkuCandidate(item.sku, item.order_no))
       .map(item => ({
         ...item,
         order_date: orderDateMap[item.order_no] || '',
@@ -121,7 +122,11 @@ export default function SkuCenter({ orders, orderItems }) {
     const cur = itemsWithDate.filter(i => i.order_date >= start && i.order_date <= end)
     const prev = itemsWithDate.filter(i => i.order_date >= prevStart && i.order_date < start)
 
-    const curMap = {}, prevMap = {}
+    const curMap = {}, prevMap = {}, firstAppear = {}
+    itemsWithDate.forEach(i => {
+      if (!i.order_date) return
+      if (!firstAppear[i.sku] || i.order_date < firstAppear[i.sku]) firstAppear[i.sku] = i.order_date
+    })
     cur.forEach(i => { curMap[i.sku] = (curMap[i.sku] || 0) + i.quantity })
     prev.forEach(i => { prevMap[i.sku] = (prevMap[i.sku] || 0) + i.quantity })
 
@@ -131,12 +136,13 @@ export default function SkuCenter({ orders, orderItems }) {
       const cv = curMap[sku] || 0
       const pv = prevMap[sku] || 0
       const pName = itemsWithDate.find(i => i.sku === sku)?.product_name || ''
-      if (pv > 0 && cv > pv) {
+      const delta = cv - pv
+      if ((firstAppear[sku] || '') < start && pv >= 3 && delta >= 3) {
         const growth = ((cv - pv) / pv * 100).toFixed(1)
-        result.push({ sku, productName: pName, growth: parseFloat(growth), cur: cv, prev: pv })
+        result.push({ sku, productName: pName, growth: parseFloat(growth), cur: cv, prev: pv, delta })
       }
     })
-    return result.sort((a, b) => b.growth - a.growth).slice(0, 20)
+    return result.sort((a, b) => b.delta - a.delta || b.growth - a.growth).slice(0, 20)
   }, [itemsWithDate])
 
   // ============================
@@ -147,7 +153,11 @@ export default function SkuCenter({ orders, orderItems }) {
     const cur = itemsWithDate.filter(i => i.order_date >= start && i.order_date <= end)
     const prev = itemsWithDate.filter(i => i.order_date >= prevStart && i.order_date < start)
 
-    const curMap = {}, prevMap = {}
+    const curMap = {}, prevMap = {}, firstAppear = {}
+    itemsWithDate.forEach(i => {
+      if (!i.order_date) return
+      if (!firstAppear[i.sku] || i.order_date < firstAppear[i.sku]) firstAppear[i.sku] = i.order_date
+    })
     cur.forEach(i => { curMap[i.sku] = (curMap[i.sku] || 0) + i.quantity })
     prev.forEach(i => { prevMap[i.sku] = (prevMap[i.sku] || 0) + i.quantity })
 
@@ -157,7 +167,7 @@ export default function SkuCenter({ orders, orderItems }) {
       const cv = curMap[sku] || 0
       const pv = prevMap[sku] || 0
       const pName = itemsWithDate.find(i => i.sku === sku)?.product_name || ''
-      if (pv > 2 && cv < pv * 0.7) {
+      if ((firstAppear[sku] || '') < start && pv >= 3 && cv < pv * 0.7) {
         const decline = ((pv - cv) / pv * 100).toFixed(1)
         result.push({ sku, productName: pName, decline: parseFloat(decline), cur: cv, prev: pv })
       }

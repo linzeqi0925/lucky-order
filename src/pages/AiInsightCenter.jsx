@@ -12,6 +12,7 @@
  */
 
 import { useState, useMemo } from 'react'
+import { isValidSkuCandidate } from '../lib/skuFallback'
 
 export default function AiInsightCenter({ orders, orderItems }) {
   const [activeView, setActiveView] = useState('dashboard')
@@ -24,7 +25,9 @@ export default function AiInsightCenter({ orders, orderItems }) {
 
   const itemsWithDate = useMemo(() => {
     if (!orderItems?.length) return []
-    return orderItems.map(item => ({ ...item, order_date: orderDateMap[item.order_no] || '' }))
+    return orderItems
+      .filter(item => isValidSkuCandidate(item.sku, item.order_no))
+      .map(item => ({ ...item, order_date: orderDateMap[item.order_no] || '' }))
   }, [orderItems, orderDateMap])
 
   // 工具：获取两个时间段的数据
@@ -87,19 +90,31 @@ export default function AiInsightCenter({ orders, orderItems }) {
     const { end, s30, s60 } = getPeriodData()
     const cur = itemsWithDate.filter(i => i.order_date >= s30 && i.order_date <= end)
     const prev = itemsWithDate.filter(i => i.order_date >= s60 && i.order_date < s30)
-    const curMap = {}, prevMap = {}
+    const curMap = {}, prevMap = {}, firstAppear = {}
+    itemsWithDate.forEach(i => {
+      if (!i.order_date) return
+      if (!firstAppear[i.sku] || i.order_date < firstAppear[i.sku]) firstAppear[i.sku] = i.order_date
+    })
     cur.forEach(i => { curMap[i.sku] = (curMap[i.sku] || 0) + i.quantity })
     prev.forEach(i => { prevMap[i.sku] = (prevMap[i.sku] || 0) + i.quantity })
     const all = new Set([...Object.keys(curMap), ...Object.keys(prevMap)])
     const result = []
     all.forEach(sku => {
       const cv = curMap[sku] || 0, pv = prevMap[sku] || 0
+      const delta = cv - pv
       const pName = itemsWithDate.find(i => i.sku === sku)?.product_name || ''
-      if (pv > 0) result.push({ name: sku, productName: pName, cur: cv, prev: pv, change: ((cv - pv) / pv * 100).toFixed(1) })
+      const firstDate = firstAppear[sku] || ''
+      if (pv > 0) result.push({ name: sku, productName: pName, cur: cv, prev: pv, delta, firstDate, change: ((cv - pv) / pv * 100).toFixed(1) })
     })
     return {
-      growth: result.filter(r => r.change > 30).sort((a, b) => b.change - a.change).slice(0, 20),
-      decline: result.filter(r => r.change < -30 && r.prev > 2).sort((a, b) => a.change - b.change).slice(0, 20),
+      growth: result
+        .filter(r => r.firstDate < s30 && r.prev >= 3 && r.delta >= 3 && Number(r.change) > 30)
+        .sort((a, b) => b.delta - a.delta || Number(b.change) - Number(a.change))
+        .slice(0, 20),
+      decline: result
+        .filter(r => r.firstDate < s30 && r.change < -30 && r.prev >= 3)
+        .sort((a, b) => a.change - b.change)
+        .slice(0, 20),
     }
   }, [itemsWithDate])
 
@@ -111,6 +126,7 @@ export default function AiInsightCenter({ orders, orderItems }) {
     const firstAppear = {}
     itemsWithDate.forEach(i => {
       if (!i.order_date) return
+      if (!isValidSkuCandidate(i.sku, i.order_no)) return
       if (!firstAppear[i.sku] || i.order_date < firstAppear[i.sku]) firstAppear[i.sku] = i.order_date
     })
     return Object.entries(firstAppear)
