@@ -1,7 +1,32 @@
-import { useEffect, useState } from 'react'
+import { Component, useEffect, useState } from 'react'
 import { supabase } from './lib/supabase'
 import LoginPage from './pages/LoginPage'
 import Dashboard from './pages/Dashboard'
+
+class AppErrorBoundary extends Component {
+  constructor(props) {
+    super(props)
+    this.state = { error: null }
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error }
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children
+
+    return (
+      <div className="app-loading" style={{ padding: 24, textAlign: 'center' }}>
+        <h2>页面加载遇到问题</h2>
+        <p style={{ color: '#64748b', marginTop: 8 }}>请刷新页面，或退出后重新登录。</p>
+        <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => location.reload()}>
+          刷新页面
+        </button>
+      </div>
+    )
+  }
+}
 
 function App() {
   const [session, setSession] = useState(null)
@@ -30,7 +55,11 @@ function App() {
     </div>
   )
 
-  return session ? <Dashboard /> : <LoginPage />
+  return (
+    <AppErrorBoundary>
+      {session ? <Dashboard session={session} /> : <LoginPage />}
+    </AppErrorBoundary>
+  )
 }
 
 export default App

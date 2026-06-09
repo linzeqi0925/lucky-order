@@ -36,8 +36,8 @@ const NAV_ITEMS = [
   { key: 'data',        label: '数据中心', icon: '💾' },
 ]
 
-export default function Dashboard() {
-  const [user, setUser] = useState(null)
+export default function Dashboard({ session }) {
+  const [user, setUser] = useState(session?.user || null)
   const { orders, loading, loadOrders } = useOrders(user)
   const { items: orderItems, loading: itemsLoading, loadItems } = useOrderItems(user)
   const effectiveOrderItems = getEffectiveOrderItems(orders, orderItems)
@@ -45,8 +45,21 @@ export default function Dashboard() {
   const [showRules, setShowRules] = useState(false)
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setUser(data.user))
-  }, [])
+    if (session?.user) {
+      setUser(session.user)
+      return
+    }
+
+    supabase.auth.getUser()
+      .then(({ data, error }) => {
+        if (error || !data.user) {
+          supabase.auth.signOut()
+          return
+        }
+        setUser(data.user)
+      })
+      .catch(() => supabase.auth.signOut())
+  }, [session])
 
   // 共享组件同时需要加载数据
   const handleImported = (result) => {
@@ -86,7 +99,12 @@ export default function Dashboard() {
     await supabase.auth.signOut()
   }
 
-  if (!user) return null
+  if (!user) return (
+    <div className="app-loading">
+      <div className="spinner"></div>
+      <p>正在进入工作台...</p>
+    </div>
+  )
 
   return (
     <div className="dashboard">
