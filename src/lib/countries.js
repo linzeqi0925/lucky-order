@@ -145,6 +145,18 @@ export function getEnglishName(cnName) {
   return COUNTRIES[cnName]?.en || cnName
 }
 
+/** 获取 world.json 中用于地图匹配的国家名 */
+export function getMapName(cnName) {
+  const en = getEnglishName(cnName)
+  const overrides = {
+    'United States': 'United States of America',
+    'USA': 'United States of America',
+    'South Korea': 'Korea',
+    'Czech Rep.': 'Czechia',
+  }
+  return overrides[en] || en
+}
+
 /** 获取国家坐标（用于散点/热力图） */
 export function getCoords(cnName) {
   return COUNTRIES[cnName]?.coords || null

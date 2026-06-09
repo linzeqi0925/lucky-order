@@ -16,6 +16,7 @@ import { supabase } from '../lib/supabase'
 import { useOrders, useOrderItems, useFilters } from '../hooks/useOrders'
 import OverviewDashboard from './OverviewDashboard'
 import SkuCenter from './SkuCenter'
+import NewProductCenter from './NewProductCenter'
 import CountryCenter from './CountryCenter'
 import StoreCenter from './StoreCenter'
 import AiInsightCenter from './AiInsightCenter'
@@ -24,13 +25,14 @@ import DataImport from './DataImport'
 import RulesModal from '../components/RulesModal'
 
 const NAV_ITEMS = [
-  { key: 'overview',    label: '经营驾驶舱', icon: '📊' },
-  { key: 'sku',         label: 'SKU中心',     icon: '📦' },
-  { key: 'country',     label: '国家中心',    icon: '🌍' },
-  { key: 'store',       label: '店铺中心',    icon: '🏪' },
-  { key: 'ai',          label: 'AI洞察',      icon: '🧠' },
-  { key: 'import',      label: '数据导入',    icon: '📥' },
-  { key: 'data',        label: '数据中心',    icon: '💾' },
+  { key: 'overview',    label: '经营总览', icon: '📊' },
+  { key: 'import',      label: '数据导入', icon: '📥' },
+  { key: 'sku',         label: 'SKU分析',  icon: '📦' },
+  { key: 'new',         label: '新品分析', icon: '🆕' },
+  { key: 'country',     label: '国家分析', icon: '🌍' },
+  { key: 'store',       label: '店铺分析', icon: '🏪' },
+  { key: 'ai',          label: 'AI洞察',   icon: '🧠' },
+  { key: 'data',        label: '数据中心', icon: '💾' },
 ]
 
 export default function Dashboard() {
@@ -49,7 +51,7 @@ export default function Dashboard() {
     loadOrders()
     loadItems()
     if (result) {
-      const msg = `✅ 导入完成\n新增订单: ${result.inserted}\n跳过重复: ${result.skipped}`
+      const msg = `✅ 导入完成\n新增订单: ${result.inserted}\n刷新已有: ${result.updated || 0}\n跳过重复: ${result.skipped}\nSKU 明细: ${result.insertedItems || 0}`
       alert(msg)
     }
     setActiveNav('overview')
@@ -129,6 +131,9 @@ export default function Dashboard() {
         )}
         {activeNav === 'sku' && (
           <SkuCenter orders={orders} orderItems={orderItems} />
+        )}
+        {activeNav === 'new' && (
+          <NewProductCenter orders={orders} orderItems={orderItems} />
         )}
         {activeNav === 'country' && (
           <CountryCenter orders={orders} orderItems={orderItems} />

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { loadRules, saveRules } from '../lib/classifier'
+import { loadRules, saveRules, resetRules } from '../lib/classifier'
 
 export default function RulesModal({ onClose }) {
   const [rules, setRules] = useState([])
@@ -21,6 +21,11 @@ export default function RulesModal({ onClose }) {
     const updated = rules.filter((_, i) => i !== idx)
     saveRules(updated)
     setRules(updated)
+  }
+
+  const handleReset = () => {
+    if (!confirm('恢复默认智能分类规则？你手动添加的规则会被替换。')) return
+    setRules(resetRules())
   }
 
   return (
@@ -51,6 +56,7 @@ export default function RulesModal({ onClose }) {
 
         <div className="rules-footer">
           <span className="rules-count">共 {rules.length} 条规则</span>
+          <button className="btn-outline-sm" onClick={handleReset}>恢复默认智能规则</button>
         </div>
       </div>
     </div>

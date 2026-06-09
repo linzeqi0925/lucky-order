@@ -2,7 +2,7 @@ import { supabase } from './supabase'
 
 const BATCH_SIZE = 100
 
-/** 导入订单（去重+分批写入，只写 orders 表） */
+/** 导入订单（去重+分批写入 orders，并为本次文件重建 order_items 明细） */
 export async function importOrders(userId, rawRows) {
   if (!userId || !rawRows?.length) {
     return { inserted: 0, skipped: 0, details: [] }
@@ -26,6 +26,7 @@ export async function importOrders(userId, rawRows) {
         total_amount: row.total_amount || 0,
         order_date: row.order_date || '',
         totalQty: 0,
+        items: [],
       })
     }
     const o = orderMap.get(row.order_no)
@@ -35,6 +36,22 @@ export async function importOrders(userId, rawRows) {
     if (row.order_date) o.order_date = row.order_date
     if (row.product_name) o.product_name = row.product_name
     if (row.product_category) o.product_category = row.product_category
+
+    if (Array.isArray(row.items) && row.items.length > 0) {
+      row.items.forEach(item => {
+        o.items.push({
+          sku: item.sku || '',
+          product_name: item.product_name || row.product_name || '',
+          quantity: item.quantity || 1,
+        })
+      })
+    } else if (row.product_sku || row.product_name) {
+      o.items.push({
+        sku: row.product_sku || '',
+        product_name: row.product_name || '',
+        quantity: row.quantity || 1,
+      })
+    }
   }
 
   const orderNos = [...orderMap.keys()]
@@ -78,8 +95,66 @@ export async function importOrders(userId, rawRows) {
     inserted += batch.length
   }
 
+  let updated = 0
+  for (const order of orderMap.values()) {
+    if (!existingSet.has(order.order_no)) continue
+    const { error } = await supabase
+      .from('orders')
+      .update({
+        store_name: order.store_name || '',
+        country: order.country || '',
+        province: order.province || '',
+        product_name: order.product_name || '',
+        product_category: order.product_category || '未分类',
+        quantity: order.totalQty,
+        total_amount: order.total_amount || 0,
+        order_date: order.order_date || new Date().toISOString().split('T')[0],
+        order_status: 'completed',
+      })
+      .eq('user_id', userId)
+      .eq('order_no', String(order.order_no))
+    if (error) throw new Error(`更新已有订单失败: ${error.message}`)
+    updated++
+  }
+
+  const rebuiltItems = []
+  for (const order of orderMap.values()) {
+    if (!order.items?.length) continue
+    order.items.forEach(item => {
+      rebuiltItems.push({
+        user_id: userId,
+        order_no: String(order.order_no),
+        sku: item.sku || '',
+        product_name: item.product_name || '',
+        quantity: item.quantity || 1,
+      })
+    })
+  }
+
+  let insertedItems = 0
+  if (rebuiltItems.length > 0) {
+    for (let i = 0; i < orderNos.length; i += BATCH_SIZE) {
+      const batch = orderNos.slice(i, i + BATCH_SIZE)
+      const { error } = await supabase
+        .from('order_items')
+        .delete()
+        .eq('user_id', userId)
+        .in('order_no', batch)
+      if (error) throw new Error(`重建 SKU 明细失败: ${error.message}`)
+    }
+
+    for (let i = 0; i < rebuiltItems.length; i += BATCH_SIZE) {
+      const batch = rebuiltItems.slice(i, i + BATCH_SIZE)
+      const { error } = await supabase.from('order_items').insert(batch)
+      if (error) throw new Error(`SKU 明细导入失败: ${error.message}`)
+      insertedItems += batch.length
+    }
+  }
+
   details.push(`✅ 成功导入 ${inserted} 条`)
-  return { inserted, skipped, details }
+  details.push(`✅ 已刷新已有订单 ${updated} 条`)
+  details.push(`✅ SKU 明细已更新 ${insertedItems} 条`)
+  return { inserted, skipped, updated, insertedItems, details }
 }
 
 /** 查询已存在订单号 */
@@ -109,6 +184,9 @@ export async function getOrders(userId) {
 
 /** 清空用户数据 */
 export async function clearUserData(userId) {
+  const { error: itemError } = await supabase.from('order_items').delete().eq('user_id', userId)
+  if (itemError) throw new Error(`清空 SKU 明细失败: ${itemError.message}`)
+
   const { error } = await supabase.from('orders').delete().eq('user_id', userId)
   if (error) throw new Error(`清空失败: ${error.message}`)
   return true

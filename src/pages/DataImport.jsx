@@ -370,11 +370,17 @@ function processMabang(header, dataRows) {
 
   const orders = Object.values(orderMap).map(o => {
     const dateStr = formatExcelDate(o.rawDate)
+    const classifyText = [
+      ...o.productNames,
+      ...o.items.map(i => i.product_name),
+      ...o.items.map(i => i.sku),
+    ].filter(Boolean).join(' ')
+
     return {
       order_no: o.order_no, store_name: o.store_name, country: o.country, province: o.province,
       product_name: o.productNames.join('; ') || o.items.map(i => i.product_name).filter(Boolean).join(', '),
       product_sku: o.items.map(i => i.sku).filter(Boolean).join(';'),
-      product_category: o.product_category || classifyProduct(o.productNames[0] || o.items[0]?.sku || ''),
+      product_category: o.product_category || classifyProduct(classifyText),
       quantity: o.totalQty, order_date: dateStr, total_amount: 0, items: o.items,
     }
   })

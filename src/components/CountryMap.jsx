@@ -8,7 +8,7 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import ReactECharts from 'echarts-for-react'
 import * as echarts from 'echarts'
-import { getEnglishName, getCountryInfo } from '../lib/countries'
+import { getMapName, getCountryInfo } from '../lib/countries'
 
 export default function CountryMap({ orders }) {
   const [selectedCountry, setSelectedCountry] = useState(null)
@@ -63,7 +63,7 @@ export default function CountryMap({ orders }) {
 
     // 构建 choropleth 数据：用英文名匹配地图特征
     const mapData = Object.entries(countryStats.qtyMap).map(([cn, qty]) => {
-      const en = getEnglishName(cn)
+      const en = getMapName(cn)
       if (!en) return null
       return { name: en, cnName: cn, value: qty }
     }).filter(Boolean)
@@ -99,6 +99,7 @@ export default function CountryMap({ orders }) {
       series: [{
         type: 'map',
         map: 'world',
+        nameProperty: 'name',
         roam: true,
         selectedMode: false,
         label: {
