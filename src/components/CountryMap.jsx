@@ -249,19 +249,28 @@ function SvgWorldMap({ geoJson, countryStats, selectedCountry, onSelect }) {
   }
 
   const polygonPath = (ring) => {
-    if (!ring?.length) return ''
-    return ring.map((coord, index) => {
-      const [x, y] = project(coord)
-      return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
-    }).join(' ') + ' Z'
+    if (!Array.isArray(ring) || ring.length === 0) return ''
+    const parts = []
+    ring.forEach((coord) => {
+      if (!Array.isArray(coord) || coord.length < 2) return
+      const [lon, lat] = coord
+      if (!Number.isFinite(Number(lon)) || !Number.isFinite(Number(lat))) return
+      const [x, y] = project([Number(lon), Number(lat)])
+      parts.push(`${parts.length === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`)
+    })
+    return parts.length ? `${parts.join(' ')} Z` : ''
   }
 
   const featurePath = (feature) => {
-    const geom = feature.geometry
-    if (!geom) return ''
-    if (geom.type === 'Polygon') return geom.coordinates.map(polygonPath).join(' ')
-    if (geom.type === 'MultiPolygon') return geom.coordinates.flatMap(poly => poly.map(polygonPath)).join(' ')
-    return ''
+    try {
+      const geom = feature.geometry
+      if (!geom) return ''
+      if (geom.type === 'Polygon') return geom.coordinates.map(polygonPath).filter(Boolean).join(' ')
+      if (geom.type === 'MultiPolygon') return geom.coordinates.flatMap(poly => poly.map(polygonPath)).filter(Boolean).join(' ')
+      return ''
+    } catch {
+      return ''
+    }
   }
 
   const colorFor = (qty) => {

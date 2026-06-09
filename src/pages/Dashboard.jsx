@@ -11,7 +11,7 @@
  *   - DataImport:       数据导入
  */
 
-import { useState, useEffect } from 'react'
+import { Component, useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useOrders, useOrderItems, useFilters } from '../hooks/useOrders'
 import OverviewDashboard from './OverviewDashboard'
@@ -35,6 +35,37 @@ const NAV_ITEMS = [
   { key: 'ai',          label: 'AI洞察',   icon: '🧠' },
   { key: 'data',        label: '数据中心', icon: '💾' },
 ]
+
+class ContentErrorBoundary extends Component {
+  constructor(props) {
+    super(props)
+    this.state = { error: null }
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error }
+  }
+
+  componentDidUpdate(prevProps) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.error) {
+      this.setState({ error: null })
+    }
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children
+
+    return (
+      <div className="dashboard-view">
+        <div className="chart-card wide">
+          <div className="chart-title">当前栏目加载失败</div>
+          <p className="modal-desc">你可以先切换到“数据导入”或“数据中心”。错误信息：</p>
+          <div className="error-msg">{this.state.error.message}</div>
+        </div>
+      </div>
+    )
+  }
+}
 
 export default function Dashboard({ session }) {
   const [user, setUser] = useState(session?.user || null)
@@ -141,35 +172,37 @@ export default function Dashboard({ session }) {
 
       {/* 主内容区 */}
       <div className="dashboard-body">
-        {activeNav === 'overview' && (
-          <OverviewDashboard
-            orders={orders}
-            orderItems={effectiveOrderItems}
-            loading={loading}
-            onRefresh={loadOrders}
-          />
-        )}
-        {activeNav === 'sku' && (
-          <SkuCenter orders={orders} orderItems={effectiveOrderItems} />
-        )}
-        {activeNav === 'new' && (
-          <NewProductCenter orders={orders} orderItems={effectiveOrderItems} />
-        )}
-        {activeNav === 'country' && (
-          <CountryCenter orders={orders} orderItems={effectiveOrderItems} />
-        )}
-        {activeNav === 'store' && (
-          <StoreCenter orders={orders} orderItems={effectiveOrderItems} />
-        )}
-        {activeNav === 'ai' && (
-          <AiInsightCenter orders={orders} orderItems={effectiveOrderItems} />
-        )}
-        {activeNav === 'import' && (
-          <DataImport onImported={handleImported} />
-        )}
-        {activeNav === 'data' && (
-          <DataCenter user={user} orders={orders} onRefresh={() => { loadOrders(); loadItems() }} />
-        )}
+        <ContentErrorBoundary resetKey={activeNav}>
+          {activeNav === 'overview' && (
+            <OverviewDashboard
+              orders={orders}
+              orderItems={effectiveOrderItems}
+              loading={loading}
+              onRefresh={loadOrders}
+            />
+          )}
+          {activeNav === 'sku' && (
+            <SkuCenter orders={orders} orderItems={effectiveOrderItems} />
+          )}
+          {activeNav === 'new' && (
+            <NewProductCenter orders={orders} orderItems={effectiveOrderItems} />
+          )}
+          {activeNav === 'country' && (
+            <CountryCenter orders={orders} orderItems={effectiveOrderItems} />
+          )}
+          {activeNav === 'store' && (
+            <StoreCenter orders={orders} orderItems={effectiveOrderItems} />
+          )}
+          {activeNav === 'ai' && (
+            <AiInsightCenter orders={orders} orderItems={effectiveOrderItems} />
+          )}
+          {activeNav === 'import' && (
+            <DataImport onImported={handleImported} />
+          )}
+          {activeNav === 'data' && (
+            <DataCenter user={user} orders={orders} onRefresh={() => { loadOrders(); loadItems() }} />
+          )}
+        </ContentErrorBoundary>
       </div>
 
       {/* 弹窗 */}

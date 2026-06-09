@@ -20,6 +20,9 @@ class AppErrorBoundary extends Component {
       <div className="app-loading" style={{ padding: 24, textAlign: 'center' }}>
         <h2>页面加载遇到问题</h2>
         <p style={{ color: '#64748b', marginTop: 8 }}>请刷新页面，或退出后重新登录。</p>
+        <p style={{ color: '#dc2626', marginTop: 8, fontSize: 12, maxWidth: 720 }}>
+          {this.state.error?.message}
+        </p>
         <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => location.reload()}>
           刷新页面
         </button>
