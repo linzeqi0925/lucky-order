@@ -76,7 +76,11 @@ export function useOrderItems(user) {
       const data = await loadAllFrom('order_items', user.id)
       setItems(data)
     } catch (e) {
-      console.error('加载 SKU 明细失败:', e)
+      if (e?.code === '42P01' || e?.message?.includes('order_items')) {
+        setItems([])
+      } else {
+        console.error('加载 SKU 明细失败:', e)
+      }
     } finally {
       setLoading(false)
     }

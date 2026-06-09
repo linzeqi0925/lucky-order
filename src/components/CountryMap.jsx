@@ -14,6 +14,7 @@ export default function CountryMap({ orders }) {
   const [selectedCountry, setSelectedCountry] = useState(null)
   const [mapLoaded, setMapLoaded] = useState(false)
   const [mapError, setMapError] = useState(null)
+  const [mapGeoJson, setMapGeoJson] = useState(null)
   const chartRef = useRef(null)
 
   // 加载 GeoJSON 并注册地图
@@ -26,6 +27,7 @@ export default function CountryMap({ orders }) {
       .then(data => {
         if (!data || !data.features) throw new Error('GeoJSON 格式异常')
         echarts.registerMap('world', data)
+        setMapGeoJson(data)
         setMapLoaded(true)
         console.log(`✅ 世界地图加载完成: ${data.features.length} 个国家/地区`)
       })
@@ -170,6 +172,13 @@ export default function CountryMap({ orders }) {
               <span style={{ fontSize: 12, color: '#94a3b8' }}>{mapError}</span>
               <span style={{ fontSize: 12, color: '#94a3b8' }}>请检查 /maps/world.json 文件</span>
             </div>
+          ) : mapGeoJson ? (
+            <SvgWorldMap
+              geoJson={mapGeoJson}
+              countryStats={countryStats}
+              selectedCountry={selectedCountry}
+              onSelect={setSelectedCountry}
+            />
           ) : (
             <ReactECharts
               ref={chartRef}
@@ -219,6 +228,78 @@ export default function CountryMap({ orders }) {
           onClose={() => setSelectedCountry(null)}
         />
       )}
+    </div>
+  )
+}
+
+function SvgWorldMap({ geoJson, countryStats, selectedCountry, onSelect }) {
+  const width = 900
+  const height = 440
+  const maxVal = Math.max(...Object.values(countryStats.qtyMap), 1)
+  const dataByMapName = {}
+
+  Object.entries(countryStats.qtyMap).forEach(([cn, qty]) => {
+    dataByMapName[getMapName(cn)] = { cn, qty }
+  })
+
+  const project = ([lon, lat]) => {
+    const x = ((lon + 180) / 360) * width
+    const y = ((90 - lat) / 180) * height
+    return [x, y]
+  }
+
+  const polygonPath = (ring) => {
+    if (!ring?.length) return ''
+    return ring.map((coord, index) => {
+      const [x, y] = project(coord)
+      return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
+    }).join(' ') + ' Z'
+  }
+
+  const featurePath = (feature) => {
+    const geom = feature.geometry
+    if (!geom) return ''
+    if (geom.type === 'Polygon') return geom.coordinates.map(polygonPath).join(' ')
+    if (geom.type === 'MultiPolygon') return geom.coordinates.flatMap(poly => poly.map(polygonPath)).join(' ')
+    return ''
+  }
+
+  const colorFor = (qty) => {
+    if (!qty) return '#f1f5f9'
+    const t = qty / maxVal
+    if (t > 0.75) return '#3730a3'
+    if (t > 0.55) return '#4f46e5'
+    if (t > 0.35) return '#6366f1'
+    if (t > 0.18) return '#818cf8'
+    return '#c7d2fe'
+  }
+
+  return (
+    <div className="svg-map-wrap">
+      <svg viewBox={`0 0 ${width} ${height}`} className="svg-world-map" role="img" aria-label="全球订单分布地图">
+        <rect width={width} height={height} fill="#f8fafc" />
+        {geoJson.features.map((feature, index) => {
+          const mapName = feature.properties?.name
+          const stat = dataByMapName[mapName]
+          const active = selectedCountry && stat?.cn === selectedCountry
+          return (
+            <path
+              key={`${mapName}-${index}`}
+              d={featurePath(feature)}
+              fill={colorFor(stat?.qty)}
+              stroke={active ? '#f97316' : '#cbd5e1'}
+              strokeWidth={active ? 1.4 : 0.45}
+              className="svg-country"
+              onClick={() => stat?.cn && onSelect(stat.cn)}
+            >
+              <title>{stat ? `${stat.cn}: ${stat.qty}件` : mapName}</title>
+            </path>
+          )
+        })}
+      </svg>
+      <div className="map-subtitle" style={{marginTop:8}}>
+        地图为简化投影，颜色越深代表出库越多；点击有颜色国家查看详情。
+      </div>
     </div>
   )
 }

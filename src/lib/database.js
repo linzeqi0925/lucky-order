@@ -2,6 +2,11 @@ import { supabase } from './supabase'
 
 const BATCH_SIZE = 100
 
+function isMissingOptionalTable(error) {
+  const msg = error?.message || ''
+  return error?.code === '42P01' || msg.includes('order_items') || msg.includes('does not exist')
+}
+
 /** 导入订单（去重+分批写入 orders，并为本次文件重建 order_items 明细） */
 export async function importOrders(userId, rawRows) {
   if (!userId || !rawRows?.length) {
@@ -133,6 +138,7 @@ export async function importOrders(userId, rawRows) {
 
   let insertedItems = 0
   if (rebuiltItems.length > 0) {
+    let canWriteItems = true
     for (let i = 0; i < orderNos.length; i += BATCH_SIZE) {
       const batch = orderNos.slice(i, i + BATCH_SIZE)
       const { error } = await supabase
@@ -140,14 +146,30 @@ export async function importOrders(userId, rawRows) {
         .delete()
         .eq('user_id', userId)
         .in('order_no', batch)
-      if (error) throw new Error(`重建 SKU 明细失败: ${error.message}`)
+      if (error) {
+        if (isMissingOptionalTable(error)) {
+          canWriteItems = false
+          details.push('⚠️ 未检测到 order_items 表，SKU 将临时从订单字段解析')
+          break
+        }
+        throw new Error(`重建 SKU 明细失败: ${error.message}`)
+      }
     }
 
-    for (let i = 0; i < rebuiltItems.length; i += BATCH_SIZE) {
-      const batch = rebuiltItems.slice(i, i + BATCH_SIZE)
-      const { error } = await supabase.from('order_items').insert(batch)
-      if (error) throw new Error(`SKU 明细导入失败: ${error.message}`)
-      insertedItems += batch.length
+    if (canWriteItems) {
+      for (let i = 0; i < rebuiltItems.length; i += BATCH_SIZE) {
+        const batch = rebuiltItems.slice(i, i + BATCH_SIZE)
+        const { error } = await supabase.from('order_items').insert(batch)
+        if (error) {
+          if (isMissingOptionalTable(error)) {
+            details.push('⚠️ 未检测到 order_items 表，SKU 将临时从订单字段解析')
+            insertedItems = 0
+            break
+          }
+          throw new Error(`SKU 明细导入失败: ${error.message}`)
+        }
+        insertedItems += batch.length
+      }
     }
   }
 
@@ -185,7 +207,9 @@ export async function getOrders(userId) {
 /** 清空用户数据 */
 export async function clearUserData(userId) {
   const { error: itemError } = await supabase.from('order_items').delete().eq('user_id', userId)
-  if (itemError) throw new Error(`清空 SKU 明细失败: ${itemError.message}`)
+  if (itemError && !isMissingOptionalTable(itemError)) {
+    throw new Error(`清空 SKU 明细失败: ${itemError.message}`)
+  }
 
   const { error } = await supabase.from('orders').delete().eq('user_id', userId)
   if (error) throw new Error(`清空失败: ${error.message}`)

@@ -23,6 +23,7 @@ import AiInsightCenter from './AiInsightCenter'
 import DataCenter from './DataCenter'
 import DataImport from './DataImport'
 import RulesModal from '../components/RulesModal'
+import { getEffectiveOrderItems } from '../lib/skuFallback'
 
 const NAV_ITEMS = [
   { key: 'overview',    label: '经营总览', icon: '📊' },
@@ -39,6 +40,7 @@ export default function Dashboard() {
   const [user, setUser] = useState(null)
   const { orders, loading, loadOrders } = useOrders(user)
   const { items: orderItems, loading: itemsLoading, loadItems } = useOrderItems(user)
+  const effectiveOrderItems = getEffectiveOrderItems(orders, orderItems)
   const [activeNav, setActiveNav] = useState('overview')
   const [showRules, setShowRules] = useState(false)
 
@@ -124,25 +126,25 @@ export default function Dashboard() {
         {activeNav === 'overview' && (
           <OverviewDashboard
             orders={orders}
-            orderItems={orderItems}
+            orderItems={effectiveOrderItems}
             loading={loading}
             onRefresh={loadOrders}
           />
         )}
         {activeNav === 'sku' && (
-          <SkuCenter orders={orders} orderItems={orderItems} />
+          <SkuCenter orders={orders} orderItems={effectiveOrderItems} />
         )}
         {activeNav === 'new' && (
-          <NewProductCenter orders={orders} orderItems={orderItems} />
+          <NewProductCenter orders={orders} orderItems={effectiveOrderItems} />
         )}
         {activeNav === 'country' && (
-          <CountryCenter orders={orders} orderItems={orderItems} />
+          <CountryCenter orders={orders} orderItems={effectiveOrderItems} />
         )}
         {activeNav === 'store' && (
-          <StoreCenter orders={orders} orderItems={orderItems} />
+          <StoreCenter orders={orders} orderItems={effectiveOrderItems} />
         )}
         {activeNav === 'ai' && (
-          <AiInsightCenter orders={orders} orderItems={orderItems} />
+          <AiInsightCenter orders={orders} orderItems={effectiveOrderItems} />
         )}
         {activeNav === 'import' && (
           <DataImport onImported={handleImported} />

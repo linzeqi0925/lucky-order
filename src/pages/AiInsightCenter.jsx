@@ -203,6 +203,33 @@ export default function AiInsightCenter({ orders, orderItems }) {
     return lines.join('\n')
   }, [orders, itemsWithDate, countryAnalysis, storeAnalysis, skuAnalysis, newProductOpps, stagnationRisk])
 
+  const currentInsights = useMemo(() => {
+    const rank = (list, keyFn, qtyFn = x => x.quantity || 0) => {
+      const map = {}
+      list.forEach(item => {
+        const key = keyFn(item) || '未知'
+        map[key] = (map[key] || 0) + qtyFn(item)
+      })
+      return Object.entries(map).sort((a, b) => b[1] - a[1])
+    }
+
+    const countries = rank(orders, o => o.country)
+    const stores = rank(orders, o => o.store_name)
+    const categories = rank(orders, o => o.product_category || '未分类')
+    const skus = rank(itemsWithDate, i => i.sku, i => i.quantity || 0)
+    const totalQty = orders.reduce((s, o) => s + (o.quantity || 0), 0)
+    const notes = []
+
+    if (countries[0]) notes.push(`最大市场是 ${countries[0][0]}，占出库量 ${((countries[0][1] / Math.max(1, totalQty)) * 100).toFixed(1)}%`)
+    if (stores[0]) notes.push(`最大店铺是 ${stores[0][0]}，贡献 ${stores[0][1]} 件出库`)
+    if (skus[0]) notes.push(`当前 TOP SKU 是 ${skus[0][0]}，出库 ${skus[0][1]} 件`)
+    if (categories[0]) notes.push(`主力品类是 ${categories[0][0]}，出库 ${categories[0][1]} 件`)
+    if (categories.find(([name]) => name === '未分类')) notes.push('仍有未分类数据，建议在规则里恢复默认智能规则后重新导入')
+    if (!itemsWithDate.length) notes.push('SKU 明细为空，系统会临时从订单字段解析；建议确认 Supabase 是否已创建 order_items 表')
+
+    return { countries, stores, categories, skus, notes }
+  }, [orders, itemsWithDate])
+
   // ============================
   // 视图：概览仪表板
   // ============================
@@ -217,6 +244,34 @@ export default function AiInsightCenter({ orders, orderItems }) {
           <div className="kpi-card-v2"><div className="kpi-v2-top"><span className="kpi-v2-icon">🔥</span><span className="kpi-v2-label">爆款SKU</span></div><div className="kpi-v2-value" style={{color:'#16a34a'}}>{skuAnalysis.growth.length}</div></div>
           <div className="kpi-card-v2"><div className="kpi-v2-top"><span className="kpi-v2-icon">⚠️</span><span className="kpi-v2-label">滞销SKU</span></div><div className="kpi-v2-value" style={{color:'#dc2626'}}>{skuAnalysis.decline.length}</div></div>
           <div className="kpi-card-v2"><div className="kpi-v2-top"><span className="kpi-v2-icon">🆕</span><span className="kpi-v2-label">新品机会</span></div><div className="kpi-v2-value">{newProductOpps.length}</div></div>
+        </div>
+      </div>
+
+      <div className="v2-ai-section">
+        <div className="v2-ai-header"><span className="section-badge">✅ 当前数据洞察</span></div>
+        <div className="v2-ai-grid">
+          <div className="v2-ai-alerts">
+            <h4>运营结论</h4>
+            {currentInsights.notes.map((note, i) => (
+              <div key={i} className="ai-alert-item">
+                <span className="ai-alert-icon">•</span>
+                <span className="ai-alert-text">{note}</span>
+              </div>
+            ))}
+          </div>
+          <div className="v2-ai-growth">
+            <h4>当前 TOP</h4>
+            {[
+              ['国家', currentInsights.countries[0]],
+              ['店铺', currentInsights.stores[0]],
+              ['品类', currentInsights.categories[0]],
+              ['SKU', currentInsights.skus[0]],
+            ].map(([label, item]) => item && (
+              <div key={label} className="ai-growth-item">
+                <span><strong>{label}</strong>：{item[0]} <span className="growth-pct">{item[1]}件</span></span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 

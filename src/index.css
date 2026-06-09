@@ -471,6 +471,10 @@ body {
 .map-header h4{font-size:15px;font-weight:600}
 .map-subtitle{font-size:11px;color:var(--text3)}
 .map-container{border-radius:10px;border:1px solid var(--border);overflow:hidden;flex:1}
+.svg-map-wrap{width:100%;padding:10px;background:#f8fafc}
+.svg-world-map{width:100%;height:420px;display:block;border-radius:10px;background:#f8fafc}
+.svg-country{cursor:pointer;transition:fill .15s ease,stroke .15s ease,stroke-width .15s ease}
+.svg-country:hover{stroke:#f97316;stroke-width:1.2}
 .map-ranks{margin-top:6px}
 .map-ranks h4{font-size:13px;font-weight:600;margin-bottom:10px}
 .map-rank-list{display:grid;grid-template-columns:repeat(2,1fr);gap:4px}
