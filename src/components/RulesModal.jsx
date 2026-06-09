@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { classifyProduct, loadRules, saveRules, resetRules } from '../lib/classifier'
+import { classifyProduct, loadRules, normalizeCategory, saveRules, resetRules } from '../lib/classifier'
 
 export default function RulesModal({ onClose, orders = [], onApplied }) {
   const [rules, setRules] = useState([])
@@ -49,11 +49,13 @@ export default function RulesModal({ onClose, orders = [], onApplied }) {
           order.product_name,
           order.remark,
         ].filter(Boolean).join(' '))
-        if (!nextCategory || nextCategory === order.product_category) continue
+        const normalizedCurrent = normalizeCategory(order.product_category)
+        const category = nextCategory === '未分类' ? normalizedCurrent : nextCategory
+        if (!category || category === order.product_category) continue
 
         const { error } = await supabase
           .from('orders')
-          .update({ product_category: nextCategory })
+          .update({ product_category: category })
           .eq('user_id', user.id)
           .eq('order_no', order.order_no)
         if (error) throw error
@@ -73,8 +75,8 @@ export default function RulesModal({ onClose, orders = [], onApplied }) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-card modal-wide" onClick={e => e.stopPropagation()}>
         <button className="modal-close" onClick={onClose}>✕</button>
-        <h3>🏷️ 智能分类规则</h3>
-        <p className="modal-desc">根据产品名称中的关键词自动分配到品类，导入时生效</p>
+        <h3>🏷️ 人工分类 / 品类归并</h3>
+        <p className="modal-desc">人工规则优先于智能判断。适合把材质、颜色、内页等细分款式归并到经营一级品类，例如木头印章归胶垫、内页归笔记本。</p>
 
         <div className="rules-add">
           <select value={matchMode} onChange={e => setMatchMode(e.target.value)} className="filter-input" style={{width:120}}>
@@ -83,7 +85,7 @@ export default function RulesModal({ onClose, orders = [], onApplied }) {
           </select>
           <input placeholder="关键词（如：光敏）" value={newKeyword} onChange={e => setNewKeyword(e.target.value)}
             className="filter-input" style={{flex:1}} />
-          <input placeholder="分类到（如：光敏）" value={newCategory} onChange={e => setNewCategory(e.target.value)}
+          <input placeholder="归属品类（如：胶垫、笔记本）" value={newCategory} onChange={e => setNewCategory(e.target.value)}
             className="filter-input" style={{flex:1}} />
           <button className="btn-primary-sm" onClick={handleAdd}>➕ 添加</button>
         </div>

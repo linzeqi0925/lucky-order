@@ -12,13 +12,13 @@ const DEFAULT_RULES = [
   { keyword: 'fh stanp', category: '光敏印章' },
   { keyword: 'gm-black', category: '光敏印章' },
 
-  { keyword: '回墨', category: '回墨印章' },
-  { keyword: '卓达', category: '回墨印章' },
-  { keyword: 'self', category: '回墨印章' },
-  { keyword: 'trodat', category: '回墨印章' },
-  { keyword: 'gy-zd', category: '回墨印章' },
-  { keyword: 'gy-fzd', category: '方形钢印' },
-  { keyword: '方形钢印', category: '方形钢印' },
+  { keyword: '回墨', category: '胶垫' },
+  { keyword: '卓达', category: '胶垫' },
+  { keyword: 'self', category: '胶垫' },
+  { keyword: 'trodat', category: '胶垫' },
+  { keyword: 'gy-zd', category: '胶垫' },
+  { keyword: 'gy-fzd', category: '金属钢印' },
+  { keyword: '方形钢印', category: '金属钢印' },
 
   { keyword: '金属钢印', category: '金属钢印' },
   { keyword: '钢印', category: '金属钢印' },
@@ -26,12 +26,13 @@ const DEFAULT_RULES = [
   { keyword: 'ml stanp', category: '金属钢印' },
   { keyword: 'metal', category: '金属钢印' },
 
-  { keyword: '胶垫', category: '胶垫印章' },
-  { keyword: 'rr stanp', category: '胶垫印章' },
+  { keyword: '胶垫', category: '胶垫' },
+  { keyword: 'rr stanp', category: '胶垫' },
 
-  { keyword: 'wood', category: '木柄印章' },
-  { keyword: '木头', category: '木柄印章' },
-  { keyword: 'logo-wood', category: '木柄印章' },
+  { keyword: 'wood', category: '胶垫' },
+  { keyword: '木头', category: '胶垫' },
+  { keyword: '木柄', category: '胶垫' },
+  { keyword: 'logo-wood', category: '胶垫' },
 
   { keyword: '亚克力', category: '亚克力/切割器' },
   { keyword: '水晶', category: '亚克力/切割器' },
@@ -48,6 +49,9 @@ const DEFAULT_RULES = [
   { keyword: 'ink', category: '印台/墨水' },
 
   { keyword: '笔记本', category: '笔记本' },
+  { keyword: '内页', category: '笔记本' },
+  { keyword: '本芯', category: '笔记本' },
+  { keyword: '活页', category: '笔记本' },
   { keyword: 'notebook', category: '笔记本' },
   { keyword: 'nb book', category: '笔记本' },
   { keyword: 'nb02', category: '笔记本' },
@@ -62,6 +66,23 @@ const DEFAULT_RULES = [
   { keyword: '激光', category: '激光定制' },
   { keyword: '刻', category: '激光定制' },
 ]
+
+const CATEGORY_ALIASES = {
+  回墨印章: '胶垫',
+  回墨: '胶垫',
+  卓达印章: '胶垫',
+  木柄印章: '胶垫',
+  木头印章: '胶垫',
+  木头: '胶垫',
+  胶垫印章: '胶垫',
+  胶垫类: '胶垫',
+  方形钢印: '金属钢印',
+  金属印章: '金属钢印',
+  笔记本内页: '笔记本',
+  内页: '笔记本',
+  本芯: '笔记本',
+  活页纸: '笔记本',
+}
 
 export function loadRules() {
   try {
@@ -110,17 +131,23 @@ export function classifyProduct(productName) {
       ? tokens.includes(keyword)
       : name.includes(keyword)
     if (matched) {
-      return rule.category
+      return normalizeCategory(rule.category)
     }
   }
 
-  return inferBySkuPattern(name)
+  return normalizeCategory(inferBySkuPattern(name))
+}
+
+export function normalizeCategory(category) {
+  const value = String(category || '').trim()
+  return CATEGORY_ALIASES[value] || value || '未分类'
 }
 
 function inferBySkuPattern(name) {
-  if (/^(gy-)?f?zd/.test(name)) return '回墨/方形印章'
+  if (/^(gy-)?zd/.test(name)) return '胶垫'
+  if (/^(gy-)?fzd/.test(name)) return '金属钢印'
   if (/^(ml|eb|gyf)[-\s]/.test(name)) return '金属钢印'
-  if (/^(wood|logo-wood)/.test(name)) return '木柄印章'
+  if (/^(wood|logo-wood)/.test(name)) return '胶垫'
   if (/^(stk|tz)-/.test(name)) return '贴纸耗材'
   if (/^(nb|tn)/.test(name)) return '笔记本'
   if (/^(pad|ink)/.test(name)) return '印台/墨水'
