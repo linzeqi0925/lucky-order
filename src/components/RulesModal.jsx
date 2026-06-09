@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { classifyProduct, loadRules, normalizeCategory, saveRules, resetRules } from '../lib/classifier'
+import { bulkUpdateOrderCategories } from '../lib/database'
 
 export default function RulesModal({ onClose, orders = [], onApplied }) {
   const [rules, setRules] = useState([])
@@ -8,6 +9,7 @@ export default function RulesModal({ onClose, orders = [], onApplied }) {
   const [newCategory, setNewCategory] = useState('')
   const [matchMode, setMatchMode] = useState('contains')
   const [applying, setApplying] = useState(false)
+  const [applyProgress, setApplyProgress] = useState(null)
 
   useEffect(() => { setRules(loadRules()) }, [])
 
@@ -38,11 +40,12 @@ export default function RulesModal({ onClose, orders = [], onApplied }) {
     if (!orders.length) return alert('暂无订单数据，请先导入数据')
     if (!confirm('将按当前规则重新分类已有订单，确认继续？')) return
     setApplying(true)
+    setApplyProgress({ updated: 0, total: orders.length })
     try {
       const user = (await supabase.auth.getUser()).data.user
       if (!user) throw new Error('登录状态已失效')
 
-      let updated = 0
+      const updates = []
       for (const order of orders) {
         const nextCategory = classifyProduct([
           order.product_sku,
@@ -52,22 +55,22 @@ export default function RulesModal({ onClose, orders = [], onApplied }) {
         const normalizedCurrent = normalizeCategory(order.product_category)
         const category = nextCategory === '未分类' ? normalizedCurrent : nextCategory
         if (!category || category === order.product_category) continue
-
-        const { error } = await supabase
-          .from('orders')
-          .update({ product_category: category })
-          .eq('user_id', user.id)
-          .eq('order_no', order.order_no)
-        if (error) throw error
-        updated++
+        updates.push({ order_no: order.order_no, category })
       }
 
+      setApplyProgress({ updated: 0, total: updates.length })
+      if (updates.length === 0) {
+        alert('当前订单分类已经是最新，无需更新')
+        return
+      }
+      const result = await bulkUpdateOrderCategories(user.id, updates, setApplyProgress)
       await onApplied?.()
-      alert(`已重新分类 ${updated} 条订单`)
+      alert(`已重新分类 ${result.updated} 条订单`)
     } catch (err) {
       alert(`应用失败：${err.message}`)
     } finally {
       setApplying(false)
+      setApplyProgress(null)
     }
   }
 
@@ -106,7 +109,7 @@ export default function RulesModal({ onClose, orders = [], onApplied }) {
           <span className="rules-count">共 {rules.length} 条规则</span>
           <div className="rules-actions">
             <button className="btn-outline-sm" onClick={handleApplyExisting} disabled={applying || orders.length === 0}>
-              {applying ? '应用中...' : '应用到已有订单'}
+              {applying ? `应用中 ${applyProgress?.updated || 0}/${applyProgress?.total || 0}` : '应用到已有订单'}
             </button>
             <button className="btn-outline-sm" onClick={handleReset}>恢复默认智能规则</button>
           </div>

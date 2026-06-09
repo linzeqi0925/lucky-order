@@ -222,4 +222,37 @@ export async function getOrderCount(userId) {
   return count || 0
 }
 
-export default { importOrders, getOrders, clearUserData, findExistingOrders, getOrderCount }
+export async function bulkUpdateOrderCategories(userId, updates, onProgress) {
+  if (!userId || !updates?.length) return { updated: 0, groups: 0 }
+
+  const grouped = new Map()
+  updates.forEach(item => {
+    if (!item.order_no || !item.category) return
+    if (!grouped.has(item.category)) grouped.set(item.category, [])
+    grouped.get(item.category).push(String(item.order_no))
+  })
+
+  let updated = 0
+  let doneGroups = 0
+  const totalGroups = grouped.size
+
+  for (const [category, orderNos] of grouped.entries()) {
+    for (let i = 0; i < orderNos.length; i += BATCH_SIZE) {
+      const batch = orderNos.slice(i, i + BATCH_SIZE)
+      const { error } = await supabase
+        .from('orders')
+        .update({ product_category: category })
+        .eq('user_id', userId)
+        .in('order_no', batch)
+      if (error) throw new Error(`批量分类失败: ${error.message}`)
+      updated += batch.length
+      onProgress?.({ updated, total: updates.length, groupsDone: doneGroups, totalGroups })
+    }
+    doneGroups++
+    onProgress?.({ updated, total: updates.length, groupsDone: doneGroups, totalGroups })
+  }
+
+  return { updated, groups: totalGroups }
+}
+
+export default { importOrders, getOrders, clearUserData, findExistingOrders, getOrderCount, bulkUpdateOrderCategories }
