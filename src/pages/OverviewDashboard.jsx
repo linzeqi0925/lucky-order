@@ -2,12 +2,10 @@ import { useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import HolidayBanner from '../components/HolidayBanner'
 import KpiCard from '../components/KpiCard'
-import MonitorCard from '../components/MonitorCard'
 import FilterBar from '../components/FilterBar'
 import OrderTable from '../components/OrderTable'
 import {
   getBarOption, getPieOption, getTrendOption,
-  findDrops, renderAIAlerts, renderAIGrowth,
 } from '../lib/charts'
 
 export default function OverviewDashboard({ orders, orderItems = [], loading, onRefresh }) {
@@ -16,7 +14,6 @@ export default function OverviewDashboard({ orders, orderItems = [], loading, on
   const [filterSupplier, setFilterSupplier] = useState('')
   const [filterStore, setFilterStore] = useState('')
   const [drillCat, setDrillCat] = useState('')
-  const [trendDays, setTrendDays] = useState(7)
   const [activeTab, setActiveTab] = useState('overview')
   const [compareMode, setCompareMode] = useState(false)
   const [period1, setPeriod1] = useState({ start: '', end: '' })
@@ -163,17 +160,6 @@ export default function OverviewDashboard({ orders, orderItems = [], loading, on
   const weekdays = ['周日','周一','周二','周三','周四','周五','周六']
   const heatMax = Math.max(...Object.values(heatData), 1)
 
-  // AI 洞察
-  const aiDrops = {
-    categories: findDrops(orders, o => o.product_category),
-    stores: findDrops(orders, o => o.store_name),
-    countries: findDrops(orders, o => o.country),
-  }
-
-  // 趋势
-  const trendStats = getDateSeriesStats(filtered, trendDays, referenceDate)
-  const trendLabels = trendStats.labels.map(d => d.slice(5))
-
   const clearFilters = () => { setDateRange({ start: '', end: '' }); setFilterCategory(''); setFilterSupplier(''); setFilterStore(''); setDrillCat('') }
   const handleCatClick = (cat) => { setFilterCategory(cat); setActiveTab('table') }
   const getPeriodStats = (start, end) => {
@@ -210,62 +196,6 @@ export default function OverviewDashboard({ orders, orderItems = [], loading, on
             changes={[kpiComparison.countryCount]} />
           <KpiCard icon="🏪" label="运营店铺" value={storeSorted.length} fmt={v => v.toString()}
             changes={[kpiComparison.storeCount]} />
-        </div>
-      </div>
-
-      {/* AI 洞察 */}
-      <div className="v2-ai-section">
-        <div className="v2-ai-header"><span className="section-badge">🧠 AI 经营洞察</span></div>
-        <div className="v2-ai-content">
-          {total === 0 ? <div className="empty-sm">暂无数据，导入后自动生成洞察</div> : (
-            <div className="v2-ai-grid">
-              <div className="v2-ai-alerts">
-                <h4>⚠️ 异常下降</h4>
-                {renderAIAlerts(aiDrops.categories, '品类', '📦')}
-                {renderAIAlerts(aiDrops.countries, '国家', '🌍')}
-                {renderAIAlerts(aiDrops.stores, '店铺', '🏪')}
-                {!aiDrops.categories.length && !aiDrops.countries.length && !aiDrops.stores.length &&
-                  <p className="ai-good">✅ 各项指标平稳，无显著异常</p>}
-              </div>
-              <div className="v2-ai-growth">
-                <h4>🔥 增长机会</h4>
-                {renderAIGrowth(aiDrops.categories, '品类')}
-                {renderAIGrowth(aiDrops.countries, '国家')}
-                {!aiDrops.categories.length && !aiDrops.countries.length &&
-                  <p className="ai-good">✅ 暂无突出增长点</p>}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* 趋势 */}
-      <div className="v2-trend-section">
-        <div className="v2-section-header">
-          <span className="section-badge">📈 销售趋势</span>
-          <div className="trend-tabs">
-            {[7, 30, 90].map(d => (
-              <button key={d} className={`trend-tab ${trendDays === d ? 'active' : ''}`}
-                onClick={() => setTrendDays(d)}>近{d}天</button>
-            ))}
-          </div>
-        </div>
-        <div className="chart-row">
-          <div className="chart-card wide">
-            <div style={{height:260}}>
-              <ReactECharts option={getDualTrendOption(trendLabels, trendStats.orders, trendStats.quantity)} style={{height:'100%'}} opts={{renderer:'svg'}} />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* 异常监控 */}
-      <div className="v2-monitor-section">
-        <div className="v2-section-header"><span className="section-badge">🚨 异常监控</span></div>
-        <div className="v2-monitor-grid">
-          <MonitorCard title="📦 下降最快品类" items={aiDrops.categories.slice(0, 3)} />
-          <MonitorCard title="🏪 下降最快店铺" items={aiDrops.stores.slice(0, 3)} />
-          <MonitorCard title="🌍 下降最快国家" items={aiDrops.countries.slice(0, 3)} />
         </div>
       </div>
 
