@@ -97,10 +97,19 @@ export function classifyProduct(productName) {
   if (!productName) return '未分类'
   const rules = loadRules()
   const name = productName.toLowerCase()
-  const sorted = [...rules].sort((a, b) => b.keyword.length - a.keyword.length)
+  const tokens = name.split(/[\s;,，/|]+/).filter(Boolean)
+  const sorted = [...rules].sort((a, b) => {
+    const manualDiff = Number(Boolean(b.manual)) - Number(Boolean(a.manual))
+    if (manualDiff !== 0) return manualDiff
+    return b.keyword.length - a.keyword.length
+  })
 
   for (const rule of sorted) {
-    if (name.includes(rule.keyword.toLowerCase())) {
+    const keyword = rule.keyword.toLowerCase()
+    const matched = rule.matchMode === 'exact'
+      ? tokens.includes(keyword)
+      : name.includes(keyword)
+    if (matched) {
       return rule.category
     }
   }

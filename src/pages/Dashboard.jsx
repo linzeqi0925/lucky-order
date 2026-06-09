@@ -212,7 +212,11 @@ export default function Dashboard({ session }) {
 
       {/* 弹窗 */}
       {showRules && (
-        <RulesModal onClose={() => setShowRules(false)} />
+        <RulesModal
+          orders={orders}
+          onApplied={loadOrders}
+          onClose={() => setShowRules(false)}
+        />
       )}
     </div>
   )

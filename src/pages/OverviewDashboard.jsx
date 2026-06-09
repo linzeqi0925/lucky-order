@@ -136,13 +136,11 @@ export default function OverviewDashboard({ orders, orderItems = [], loading, on
 
   // 环比
   const recent7 = getRecentPeriodStats(filtered, 7)
+  const referenceDate = getLatestOrderDate(filtered)
+  const activeDays = getActiveDayCount(filtered)
 
   // 近7天趋势
-  const now = new Date()
-  const dayMap = {}
-  for (let i = 6; i >= 0; i--) { const d = new Date(now); d.setDate(d.getDate() - i); dayMap[d.toISOString().split('T')[0]] = 0 }
-  filtered.forEach(o => { if (dayMap[o.order_date] !== undefined) dayMap[o.order_date]++ })
-  const dayEntries = Object.entries(dayMap)
+  const dayStats = getDateSeriesStats(filtered, 7, referenceDate)
 
   // 月度趋势
   const monthMap = {}
@@ -173,11 +171,8 @@ export default function OverviewDashboard({ orders, orderItems = [], loading, on
   }
 
   // 趋势
-  const trendMap = {}
-  for (let i = trendDays - 1; i >= 0; i--) { const d = new Date(now); d.setDate(d.getDate() - i); trendMap[d.toISOString().split('T')[0]] = 0 }
-  filtered.forEach(o => { if (trendMap[o.order_date] !== undefined) trendMap[o.order_date]++ })
-  const trendLabels = Object.keys(trendMap).map(d => d.slice(5))
-  const trendOrders = Object.values(trendMap)
+  const trendStats = getDateSeriesStats(filtered, trendDays, referenceDate)
+  const trendLabels = trendStats.labels.map(d => d.slice(5))
 
   const clearFilters = () => { setDateRange({ start: '', end: '' }); setFilterCategory(''); setFilterSupplier(''); setFilterStore(''); setDrillCat('') }
   const handleCatClick = (cat) => { setFilterCategory(cat); setActiveTab('table') }
@@ -185,13 +180,6 @@ export default function OverviewDashboard({ orders, orderItems = [], loading, on
     const d = orders.filter(o => o.order_date >= start && o.order_date <= end)
     return { total: d.length, qty: d.reduce((s, o) => s + o.quantity, 0), amt: d.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0) }
   }
-  const getTrendDayMap = (all, days) => {
-    const map = {}
-    for (let i = days - 1; i >= 0; i--) { const d = new Date(now); d.setDate(d.getDate() - i); map[d.toISOString().split('T')[0]] = 0 }
-    all.forEach(o => { if (map[o.order_date] !== undefined) map[o.order_date]++ })
-    return map
-  }
-
   return (
     <div className="dashboard-view">
       <HolidayBanner />
@@ -265,7 +253,7 @@ export default function OverviewDashboard({ orders, orderItems = [], loading, on
         <div className="chart-row">
           <div className="chart-card wide">
             <div style={{height:260}}>
-              <ReactECharts option={getTrendOption(trendLabels, trendOrders)} style={{height:'100%'}} opts={{renderer:'svg'}} />
+              <ReactECharts option={getDualTrendOption(trendLabels, trendStats.orders, trendStats.quantity)} style={{height:'100%'}} opts={{renderer:'svg'}} />
             </div>
           </div>
         </div>
@@ -311,7 +299,7 @@ export default function OverviewDashboard({ orders, orderItems = [], loading, on
           <div className="stats-grid">
             <div className="stat-item"><span className="stat-l">近7天订单</span><span className="stat-v">{recent7.orders} <span className={`trend-s ${recent7.orderChange>=0?'up':'down'}`}>{recent7.hasPrevious ? `${recent7.orderChange>=0?'↑':'↓'}${Math.abs(recent7.orderChange)}%` : '暂无对比'}</span></span></div>
             <div className="stat-item"><span className="stat-l">近7天出库量</span><span className="stat-v">{recent7.quantity} <span className={`trend-s ${recent7.qtyChange>=0?'up':'down'}`}>{recent7.hasPrevious ? `${recent7.qtyChange>=0?'↑':'↓'}${Math.abs(recent7.qtyChange)}%` : '暂无对比'}</span></span></div>
-            <div className="stat-item"><span className="stat-l">日均出库</span><span className="stat-v">{(totalQty/Math.max(1,now.getDate())).toFixed(1)}件</span></div>
+            <div className="stat-item"><span className="stat-l">日均出库</span><span className="stat-v">{(totalQty/Math.max(1,activeDays)).toFixed(1)}件</span></div>
             <div className="stat-item"><span className="stat-l">完成率</span><span className="stat-v">{(((statusMap['completed']||0) / Math.max(1, total)) * 100).toFixed(0)}%</span></div>
           </div>
           {total === 0 && <div className="empty-state">📭 暂无数据，请先导入订单数据</div>}
@@ -397,8 +385,8 @@ export default function OverviewDashboard({ orders, orderItems = [], loading, on
         <div className="tab-content">
           <div className="chart-row">
             <div className="chart-card wide">
-              <div className="chart-title">近7天订单趋势</div>
-              <ReactECharts option={getTrendOption(dayEntries.map(([d]) => d.slice(5)), dayEntries.map(([, v]) => v))} style={{height:280}} opts={{renderer:'svg'}} />
+              <div className="chart-title">近7天订单数 / 出库量趋势</div>
+              <ReactECharts option={getDualTrendOption(dayStats.labels.map(d => d.slice(5)), dayStats.orders, dayStats.quantity)} style={{height:280}} opts={{renderer:'svg'}} />
             </div>
           </div>
           {Object.keys(monthMap).length > 0 && (
@@ -408,7 +396,7 @@ export default function OverviewDashboard({ orders, orderItems = [], loading, on
             </div>
           )}
           <div className="stats-grid">
-            <div className="stat-item"><span className="stat-l">日均出库</span><span className="stat-v">{(totalQty / Math.max(1, now.getDate())).toFixed(1)}件</span></div>
+            <div className="stat-item"><span className="stat-l">日均出库</span><span className="stat-v">{(totalQty / Math.max(1, activeDays)).toFixed(1)}件</span></div>
             <div className="stat-item"><span className="stat-l">完成率</span><span className="stat-v">{(((statusMap['completed']||0) / Math.max(1, total)) * 100).toFixed(0)}%</span></div>
           </div>
         </div>
@@ -676,6 +664,70 @@ function getRecentPeriodStats(orders, days) {
     orderChange: previous.length > 0 ? Math.round(((current.length - previous.length) / previous.length) * 100) : 0,
     qtyChange: prevQty > 0 ? Math.round(((quantity(current) - prevQty) / prevQty) * 100) : 0,
     hasPrevious: previous.length > 0 || prevQty > 0,
+  }
+}
+
+function getLatestOrderDate(orders) {
+  return orders.map(o => o.order_date).filter(Boolean).sort().at(-1) || new Date().toISOString().split('T')[0]
+}
+
+function getActiveDayCount(orders) {
+  const dates = orders.map(o => o.order_date).filter(Boolean).sort()
+  if (dates.length === 0) return 1
+  return Math.max(1, diffDays(dates[0], dates[dates.length - 1]) + 1)
+}
+
+function getDateSeriesStats(orders, days, endDate) {
+  const orderMap = {}
+  const qtyMap = {}
+  for (let i = days - 1; i >= 0; i--) {
+    const day = addDays(endDate, -i)
+    orderMap[day] = 0
+    qtyMap[day] = 0
+  }
+  orders.forEach(order => {
+    if (orderMap[order.order_date] === undefined) return
+    orderMap[order.order_date] += 1
+    qtyMap[order.order_date] += order.quantity || 0
+  })
+  const labels = Object.keys(orderMap)
+  return {
+    labels,
+    orders: labels.map(day => orderMap[day]),
+    quantity: labels.map(day => qtyMap[day]),
+  }
+}
+
+function getDualTrendOption(labels, orders, quantity) {
+  return {
+    tooltip: { trigger: 'axis' },
+    legend: { top: 0, data: ['订单数', '出库量'] },
+    grid: { left: 50, right: 20, top: 36, bottom: 25 },
+    xAxis: { type: 'category', data: labels, axisLabel: { fontSize: 11 } },
+    yAxis: [
+      { type: 'value', name: '订单数', splitLine: { lineStyle: { color: '#f1f5f9' } } },
+      { type: 'value', name: '出库量', splitLine: { show: false } },
+    ],
+    series: [
+      {
+        name: '订单数',
+        type: 'line',
+        data: orders,
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 7,
+        lineStyle: { color: '#6366f1', width: 3 },
+        itemStyle: { color: '#6366f1' },
+      },
+      {
+        name: '出库量',
+        type: 'bar',
+        yAxisIndex: 1,
+        data: quantity,
+        itemStyle: { color: '#10b981', borderRadius: [4, 4, 0, 0] },
+        barMaxWidth: 18,
+      },
+    ],
   }
 }
 

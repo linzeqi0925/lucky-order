@@ -1,16 +1,22 @@
 import { useState, useEffect } from 'react'
-import { loadRules, saveRules, resetRules } from '../lib/classifier'
+import { supabase } from '../lib/supabase'
+import { classifyProduct, loadRules, saveRules, resetRules } from '../lib/classifier'
 
-export default function RulesModal({ onClose }) {
+export default function RulesModal({ onClose, orders = [], onApplied }) {
   const [rules, setRules] = useState([])
   const [newKeyword, setNewKeyword] = useState('')
   const [newCategory, setNewCategory] = useState('')
+  const [matchMode, setMatchMode] = useState('contains')
+  const [applying, setApplying] = useState(false)
 
   useEffect(() => { setRules(loadRules()) }, [])
 
   const handleAdd = () => {
     if (!newKeyword.trim() || !newCategory.trim()) return
-    const updated = [...rules, { keyword: newKeyword.trim(), category: newCategory.trim() }]
+    const updated = [
+      { keyword: newKeyword.trim(), category: newCategory.trim(), matchMode, manual: true },
+      ...rules,
+    ]
     saveRules(updated)
     setRules(updated)
     setNewKeyword('')
@@ -28,6 +34,41 @@ export default function RulesModal({ onClose }) {
     setRules(resetRules())
   }
 
+  const handleApplyExisting = async () => {
+    if (!orders.length) return alert('暂无订单数据，请先导入数据')
+    if (!confirm('将按当前规则重新分类已有订单，确认继续？')) return
+    setApplying(true)
+    try {
+      const user = (await supabase.auth.getUser()).data.user
+      if (!user) throw new Error('登录状态已失效')
+
+      let updated = 0
+      for (const order of orders) {
+        const nextCategory = classifyProduct([
+          order.product_sku,
+          order.product_name,
+          order.remark,
+        ].filter(Boolean).join(' '))
+        if (!nextCategory || nextCategory === order.product_category) continue
+
+        const { error } = await supabase
+          .from('orders')
+          .update({ product_category: nextCategory })
+          .eq('user_id', user.id)
+          .eq('order_no', order.order_no)
+        if (error) throw error
+        updated++
+      }
+
+      await onApplied?.()
+      alert(`已重新分类 ${updated} 条订单`)
+    } catch (err) {
+      alert(`应用失败：${err.message}`)
+    } finally {
+      setApplying(false)
+    }
+  }
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-card modal-wide" onClick={e => e.stopPropagation()}>
@@ -36,6 +77,10 @@ export default function RulesModal({ onClose }) {
         <p className="modal-desc">根据产品名称中的关键词自动分配到品类，导入时生效</p>
 
         <div className="rules-add">
+          <select value={matchMode} onChange={e => setMatchMode(e.target.value)} className="filter-input" style={{width:120}}>
+            <option value="contains">关键词包含</option>
+            <option value="exact">精确 SKU</option>
+          </select>
           <input placeholder="关键词（如：光敏）" value={newKeyword} onChange={e => setNewKeyword(e.target.value)}
             className="filter-input" style={{flex:1}} />
           <input placeholder="分类到（如：光敏）" value={newCategory} onChange={e => setNewCategory(e.target.value)}
@@ -46,6 +91,7 @@ export default function RulesModal({ onClose }) {
         <div className="rules-list">
           {rules.map((r, i) => (
             <div key={i} className="rule-item">
+              <span className={`rule-mode ${r.matchMode === 'exact' ? 'exact' : ''}`}>{r.matchMode === 'exact' ? 'SKU' : '包含'}</span>
               <span className="rule-keyword">{r.keyword}</span>
               <span className="rule-arrow">→</span>
               <span className="rule-cat">{r.category}</span>
@@ -56,7 +102,12 @@ export default function RulesModal({ onClose }) {
 
         <div className="rules-footer">
           <span className="rules-count">共 {rules.length} 条规则</span>
-          <button className="btn-outline-sm" onClick={handleReset}>恢复默认智能规则</button>
+          <div className="rules-actions">
+            <button className="btn-outline-sm" onClick={handleApplyExisting} disabled={applying || orders.length === 0}>
+              {applying ? '应用中...' : '应用到已有订单'}
+            </button>
+            <button className="btn-outline-sm" onClick={handleReset}>恢复默认智能规则</button>
+          </div>
         </div>
       </div>
     </div>
