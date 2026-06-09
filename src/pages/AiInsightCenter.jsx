@@ -149,6 +149,15 @@ export default function AiInsightCenter({ orders, orderItems }) {
   // 经营周报
   // ============================
   const weeklyReport = useMemo(() => {
+    const rank = (list, keyFn, qtyFn = x => x.quantity || 0) => {
+      const map = {}
+      list.forEach(item => {
+        const key = keyFn(item) || '未知'
+        map[key] = (map[key] || 0) + qtyFn(item)
+      })
+      return Object.entries(map).sort((a, b) => b[1] - a[1])
+    }
+
     const lines = []
     const now = new Date()
     const days = ['日','一','二','三','四','五','六']
@@ -164,41 +173,53 @@ export default function AiInsightCenter({ orders, orderItems }) {
     lines.push(`📦 数据概览：${totalOrders}单 | ${totalQty}件 | ${countries}国 | ${stores}店 | ${skuCount}个SKU`)
     lines.push('')
 
-    lines.push(`🔥 增长最快国家 TOP3：`)
-    countryAnalysis.growth.slice(0, 3).forEach(c => lines.push(`  · ${c.name}：+${c.change}%（${c.prev}→${c.cur}件）`))
-    if (countryAnalysis.growth.length === 0) lines.push('  · 暂无')
+    const countryRank = rank(orders, o => o.country)
+    const storeRank = rank(orders, o => o.store_name)
+    const categoryRank = rank(orders, o => o.product_category || '未分类')
+    const skuRank = rank(itemsWithDate, i => i.sku, i => i.quantity || 0)
+    const unclassifiedQty = categoryRank.find(([name]) => name === '未分类')?.[1] || 0
+    const topSkuShare = skuRank[0] ? (skuRank[0][1] / Math.max(1, totalQty)) * 100 : 0
+    const topCountryShare = countryRank[0] ? (countryRank[0][1] / Math.max(1, totalQty)) * 100 : 0
+
+    lines.push('✅ 核心结论：')
+    if (countryRank[0]) lines.push(`  · 主力市场：${countryRank[0][0]}，贡献 ${countryRank[0][1]} 件，占 ${topCountryShare.toFixed(1)}%。`)
+    if (storeRank[0]) lines.push(`  · 主力店铺：${storeRank[0][0]}，贡献 ${storeRank[0][1]} 件。`)
+    if (skuRank[0]) lines.push(`  · 主力SKU：${skuRank[0][0]}，贡献 ${skuRank[0][1]} 件，占 ${topSkuShare.toFixed(1)}%。`)
+    if (categoryRank[0]) lines.push(`  · 主力品类：${categoryRank[0][0]}，贡献 ${categoryRank[0][1]} 件。`)
     lines.push('')
 
-    lines.push(`📉 下降最快国家 TOP3：`)
-    countryAnalysis.decline.slice(0, 3).forEach(c => lines.push(`  · ${c.name}：${c.change}%（${c.prev}→${c.cur}件）`))
-    if (countryAnalysis.decline.length === 0) lines.push('  · 暂无')
-    lines.push('')
-
-    lines.push(`🔥 增长最快店铺 TOP3：`)
-    storeAnalysis.growth.slice(0, 3).forEach(s => lines.push(`  · ${s.name}：+${s.change}%（${s.prev}→${s.cur}件）`))
-    if (storeAnalysis.growth.length === 0) lines.push('  · 暂无')
-    lines.push('')
-
-    lines.push(`🔥 增长最快 SKU TOP5：`)
-    skuAnalysis.growth.slice(0, 5).forEach(s => lines.push(`  · ${s.name}（${s.productName || '-'}）：+${s.change}%`))
-    if (skuAnalysis.growth.length === 0) lines.push('  · 暂无')
-    lines.push('')
-
-    lines.push(`⚠️ 滞销预警 SKU TOP5：`)
-    skuAnalysis.decline.slice(0, 5).forEach(s => lines.push(`  · ${s.name}（${s.productName || '-'}）：${s.change}%`))
-    if (skuAnalysis.decline.length === 0) lines.push('  · 暂无')
-    lines.push('')
-
-    if (newProductOpps.length > 0) {
-      lines.push(`🆕 新品上线 ${newProductOpps.length} 个：`)
-      newProductOpps.slice(0, 5).forEach(s => lines.push(`  · ${s.sku}（${s.productName || '-'}）：${s.totalQty}件，上线 ${s.firstDate}`))
+    lines.push('⚠️ 风险提醒：')
+    let riskCount = 0
+    if (topSkuShare > 35) {
+      lines.push(`  · SKU集中度偏高：${skuRank[0][0]} 占 ${topSkuShare.toFixed(1)}%，需要关注断货和单品波动。`)
+      riskCount++
     }
+    if (topCountryShare > 75) {
+      lines.push(`  · 市场集中度偏高：${countryRank[0][0]} 占 ${topCountryShare.toFixed(1)}%，建议观察其他国家是否有增长空间。`)
+      riskCount++
+    }
+    if (unclassifiedQty > 0) {
+      lines.push(`  · 未分类出库 ${unclassifiedQty} 件，会影响品类判断，建议先恢复默认智能规则并重新导入。`)
+      riskCount++
+    }
+    if (skuAnalysis.decline.length > 0) {
+      skuAnalysis.decline.slice(0, 3).forEach(s => lines.push(`  · ${s.name} 下降 ${Math.abs(Number(s.change)).toFixed(1)}%，建议检查库存、广告或Listing状态。`))
+      riskCount += Math.min(3, skuAnalysis.decline.length)
+    }
+    if (riskCount === 0) lines.push('  · 暂无明显结构性风险，建议继续观察趋势变化。')
     lines.push('')
 
-    if (stagnationRisk.length > 0) {
-      lines.push(`⚠️ 滞销风险 ${stagnationRisk.length} 个SKU：`)
-      stagnationRisk.slice(0, 5).forEach(s => lines.push(`  · ${s.sku}：下降 ${s.decline}%（${s.prev}→${s.cur}件）`))
-    }
+    lines.push('🎯 建议动作：')
+    if (skuRank[0]) lines.push(`  · 给 ${skuRank[0][0]} 做单独跟踪：看库存是否充足、是否能扩展颜色/尺寸/套装。`)
+    if (countryRank[0] && storeRank[0]) lines.push(`  · 单独复盘「${storeRank[0][0]} × ${countryRank[0][0]}」组合，看它的TOP SKU和品类结构。`)
+    if (categoryRank[0] && categoryRank[0][0] !== '未分类') lines.push(`  · 对 ${categoryRank[0][0]} 品类做二级拆分，找出是单品拉动还是多个SKU共同拉动。`)
+    if (newProductOpps.length > 0) lines.push(`  · 新品中优先看 ${newProductOpps[0].sku}，累计 ${newProductOpps[0].totalQty} 件，可进入新品分析页看日均表现。`)
+    lines.push('  · 对重点店铺/国家使用“局部分析”页，不要只看全局汇总。')
+    lines.push('')
+
+    lines.push('📌 下周关注：')
+    skuRank.slice(0, 5).forEach(([sku, qty]) => lines.push(`  · ${sku}：当前 ${qty} 件，关注是否持续出库。`))
+    if (skuRank.length === 0) lines.push('  · 暂无SKU数据，请先重新导入马帮订单文件。')
 
     return lines.join('\n')
   }, [orders, itemsWithDate, countryAnalysis, storeAnalysis, skuAnalysis, newProductOpps, stagnationRisk])

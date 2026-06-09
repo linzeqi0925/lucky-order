@@ -15,6 +15,7 @@ import { Component, useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useOrders, useOrderItems, useFilters } from '../hooks/useOrders'
 import OverviewDashboard from './OverviewDashboard'
+import SegmentAnalysis from './SegmentAnalysis'
 import SkuCenter from './SkuCenter'
 import NewProductCenter from './NewProductCenter'
 import CountryCenter from './CountryCenter'
@@ -28,6 +29,7 @@ import { getEffectiveOrderItems } from '../lib/skuFallback'
 const NAV_ITEMS = [
   { key: 'overview',    label: '经营总览', icon: '📊' },
   { key: 'import',      label: '数据导入', icon: '📥' },
+  { key: 'segment',     label: '局部分析', icon: '🔎' },
   { key: 'sku',         label: 'SKU分析',  icon: '📦' },
   { key: 'new',         label: '新品分析', icon: '🆕' },
   { key: 'country',     label: '国家分析', icon: '🌍' },
@@ -183,6 +185,9 @@ export default function Dashboard({ session }) {
           )}
           {activeNav === 'sku' && (
             <SkuCenter orders={orders} orderItems={effectiveOrderItems} />
+          )}
+          {activeNav === 'segment' && (
+            <SegmentAnalysis orders={orders} orderItems={effectiveOrderItems} />
           )}
           {activeNav === 'new' && (
             <NewProductCenter orders={orders} orderItems={effectiveOrderItems} />
