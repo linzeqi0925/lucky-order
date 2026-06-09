@@ -529,5 +529,30 @@ body {
 .compare-vs{display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;color:var(--warning);padding:20px 0}
 .compare-result{margin-top:14px;text-align:center;font-size:15px;font-weight:500;padding:12px;background:#f8fafc;border-radius:10px}
 
+/* ===== 经营交叉分析 ===== */
+.insight-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+@media(max-width:900px){.insight-strip{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:560px){.insight-strip{grid-template-columns:1fr}}
+.insight-chip{
+  background:#f8fafc;border:1px solid var(--border);border-radius:10px;
+  padding:11px 13px;font-size:13px;font-weight:600;color:var(--text);
+  line-height:1.45
+}
+.matrix-table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:12px;background:var(--card)}
+.matrix-table{width:100%;border-collapse:collapse;font-size:12px;min-width:680px}
+.matrix-table th{
+  background:#f8fafc;color:var(--text2);font-weight:700;text-align:left;
+  padding:10px 12px;border-bottom:1px solid var(--border);white-space:nowrap
+}
+.matrix-table td{padding:8px 12px;border-bottom:1px solid var(--border-light);white-space:nowrap}
+.matrix-table tbody tr:hover{background:#fafbfc}
+.matrix-row-label{font-weight:700;color:var(--text);max-width:180px;overflow:hidden;text-overflow:ellipsis}
+.matrix-cell{
+  display:inline-flex;align-items:center;justify-content:center;
+  min-width:42px;height:28px;border-radius:7px;font-weight:700
+}
+.matrix-total{font-weight:800;color:var(--primary)}
+.orderno-sm{font-family:'SF Mono',monospace;font-weight:700;color:var(--primary);font-size:12px}
+
 /* ===== 空状态 ===== */
 .empty-sm{text-align:center;padding:30px;color:var(--text3);font-size:14px}

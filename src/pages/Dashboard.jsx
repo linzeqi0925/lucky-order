@@ -122,6 +122,7 @@ export default function Dashboard() {
         {activeNav === 'overview' && (
           <OverviewDashboard
             orders={orders}
+            orderItems={orderItems}
             loading={loading}
             onRefresh={loadOrders}
           />

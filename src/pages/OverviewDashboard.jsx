@@ -12,7 +12,7 @@ import {
   findDrops, renderAIAlerts, renderAIGrowth,
 } from '../lib/charts'
 
-export default function OverviewDashboard({ orders, loading, onRefresh }) {
+export default function OverviewDashboard({ orders, orderItems = [], loading, onRefresh }) {
   const [dateRange, setDateRange] = useState({ start: '', end: '' })
   const [filterCategory, setFilterCategory] = useState('')
   const [filterSupplier, setFilterSupplier] = useState('')
@@ -75,6 +75,60 @@ export default function OverviewDashboard({ orders, loading, onRefresh }) {
   const storeMap = {}
   filtered.forEach(o => { const s = o.store_name; if (s) storeMap[s] = (storeMap[s] || 0) + o.quantity })
   const storeSorted = Object.entries(storeMap).sort((a, b) => b[1] - a[1])
+
+  // SKU 统计
+  const filteredOrderNos = new Set(filtered.map(o => o.order_no))
+  const filteredItems = (orderItems || []).filter(item => filteredOrderNos.has(item.order_no))
+  const skuMap = {}
+  const skuOrderMap = {}
+  filteredItems.forEach(item => {
+    const sku = item.sku || '未知 SKU'
+    if (!skuMap[sku]) skuMap[sku] = { sku, qty: 0, orderCount: 0, productName: item.product_name || '' }
+    skuMap[sku].qty += item.quantity || 0
+    if (!skuOrderMap[sku]) skuOrderMap[sku] = new Set()
+    skuOrderMap[sku].add(item.order_no)
+    if (item.product_name && !skuMap[sku].productName) skuMap[sku].productName = item.product_name
+  })
+  const skuSorted = Object.values(skuMap)
+    .map(s => ({ ...s, orderCount: skuOrderMap[s.sku]?.size || s.orderCount }))
+    .sort((a, b) => b.qty - a.qty)
+  const topSkuQty = skuSorted[0]?.qty || 0
+  const topSkuShare = totalQty > 0 ? (topSkuQty / totalQty * 100).toFixed(1) : 0
+
+  // 交叉分析
+  const topStores = storeSorted.slice(0, 6).map(([name]) => name)
+  const topCountries = countrySorted.slice(0, 6).map(([name]) => name)
+  const topCategories = catSorted.slice(0, 6).map(([name]) => name)
+  const storeCountryMatrix = topStores.map(store => ({
+    store,
+    total: storeMap[store] || 0,
+    values: topCountries.map(country => filtered
+      .filter(o => o.store_name === store && o.country === country)
+      .reduce((sum, o) => sum + o.quantity, 0)),
+  }))
+  const categoryStoreMatrix = topCategories.map(category => ({
+    category,
+    total: catMap[category]?.qty || 0,
+    values: topStores.map(store => filtered
+      .filter(o => (o.product_category || '未分类') === category && o.store_name === store)
+      .reduce((sum, o) => sum + o.quantity, 0)),
+  }))
+  const maxMatrixValue = Math.max(
+    1,
+    ...storeCountryMatrix.flatMap(row => row.values),
+    ...categoryStoreMatrix.flatMap(row => row.values),
+  )
+  const multiSkuOrders = Object.values(filteredItems.reduce((map, item) => {
+    if (!map[item.order_no]) map[item.order_no] = 0
+    map[item.order_no] += 1
+    return map
+  }, {})).filter(count => count > 1).length
+  const concentrationTips = [
+    storeSorted[0] ? `最大店铺 ${storeSorted[0][0]} 占出库量 ${((storeSorted[0][1] / Math.max(1, totalQty)) * 100).toFixed(1)}%` : '',
+    countrySorted[0] ? `最大国家 ${countrySorted[0][0]} 占出库量 ${((countrySorted[0][1] / Math.max(1, totalQty)) * 100).toFixed(1)}%` : '',
+    skuSorted[0] ? `最大 SKU ${skuSorted[0].sku} 占出库量 ${topSkuShare}%` : '',
+    multiSkuOrders ? `${multiSkuOrders} 笔订单包含多个 SKU` : '',
+  ].filter(Boolean)
 
   // 环比
   const period7 = getPeriodComp(orders, 7)
@@ -231,6 +285,7 @@ export default function OverviewDashboard({ orders, loading, onRefresh }) {
       <div className="tab-bar">
         {[
           ['overview', '品类'], ['trend', '趋势'], ['heatmap', '热力图'],
+          ['sku', 'SKU'], ['matrix', '交叉分析'],
           ['store', '店铺'], ['country', '国家'], ['supplier', '供应商'],
           ['table', '明细'], ['ai', 'AI'],
         ].map(([k, v]) => (
@@ -260,6 +315,80 @@ export default function OverviewDashboard({ orders, loading, onRefresh }) {
             <div className="stat-item"><span className="stat-l">完成率</span><span className="stat-v">{(((statusMap['completed']||0) / Math.max(1, total)) * 100).toFixed(0)}%</span></div>
           </div>
           {total === 0 && <div className="empty-state">📭 暂无数据，请先导入订单数据</div>}
+        </div>
+      )}
+
+      {/* SKU */}
+      {activeTab === 'sku' && (
+        <div className="tab-content">
+          <div className="stats-grid">
+            <div className="stat-item"><span className="stat-l">SKU 种类</span><span className="stat-v">{skuSorted.length}</span></div>
+            <div className="stat-item"><span className="stat-l">SKU 明细</span><span className="stat-v">{filteredItems.length}</span></div>
+            <div className="stat-item"><span className="stat-l">TOP SKU 占比</span><span className="stat-v">{topSkuShare}%</span></div>
+            <div className="stat-item"><span className="stat-l">多 SKU 订单</span><span className="stat-v">{multiSkuOrders}</span></div>
+          </div>
+          <div className="chart-row">
+            <div className="chart-card">
+              <div className="chart-title">TOP 20 SKU 出库排行</div>
+              <div style={{height: skuSorted.length > 0 ? Math.max(240, skuSorted.slice(0, 20).length * 34) : 240}}>
+                <ReactECharts option={getBarOption(skuSorted.slice(0, 20).map(s => s.sku), skuSorted.slice(0, 20).map(s => s.qty), '#8b5cf6')} style={{height:'100%'}} opts={{renderer:'svg'}} />
+              </div>
+            </div>
+            <div className="chart-card">
+              <div className="chart-title">TOP SKU 占比</div>
+              <ReactECharts option={getPieOption(skuSorted.slice(0, 10).map(s => ({name: s.sku, value: s.qty})))} style={{height:300}} opts={{renderer:'svg'}} />
+            </div>
+          </div>
+          <div className="chart-card wide">
+            <div className="chart-title">SKU 明细排行</div>
+            <div className="matrix-table-wrap">
+              <table className="matrix-table">
+                <thead><tr><th>#</th><th>SKU</th><th>产品名称</th><th>出库量</th><th>订单数</th><th>占比</th></tr></thead>
+                <tbody>
+                  {skuSorted.slice(0, 20).map((s, i) => (
+                    <tr key={s.sku}>
+                      <td>{i + 1}</td>
+                      <td><span className="orderno-sm">{s.sku}</span></td>
+                      <td>{s.productName || '-'}</td>
+                      <td>{s.qty}</td>
+                      <td>{s.orderCount}</td>
+                      <td>{totalQty > 0 ? ((s.qty / totalQty) * 100).toFixed(1) : 0}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          {skuSorted.length === 0 && <div className="empty-state">📭 暂无 SKU 明细，请确认 order_items 已写入</div>}
+        </div>
+      )}
+
+      {/* 交叉分析 */}
+      {activeTab === 'matrix' && (
+        <div className="tab-content">
+          <div className="insight-strip">
+            {concentrationTips.map((tip, i) => <div className="insight-chip" key={i}>{tip}</div>)}
+          </div>
+          <div className="chart-row">
+            <div className="chart-card wide">
+              <div className="chart-title">店铺 × 国家出库矩阵 <span className="chart-hint">适合判断每个店铺主攻市场</span></div>
+              <MatrixTable rows={storeCountryMatrix} columns={topCountries} labelKey="store" maxValue={maxMatrixValue} />
+            </div>
+          </div>
+          <div className="chart-row">
+            <div className="chart-card wide">
+              <div className="chart-title">品类 × 店铺出库矩阵 <span className="chart-hint">适合判断不同店铺的品类结构</span></div>
+              <MatrixTable rows={categoryStoreMatrix} columns={topStores} labelKey="category" maxValue={maxMatrixValue} />
+            </div>
+          </div>
+          {provinceSorted.length > 0 && (
+            <div className="chart-card wide">
+              <div className="chart-title">省/州出库排行 <span className="chart-hint">你的样本里美国州、省份信息很丰富</span></div>
+              <div style={{height: Math.max(240, provinceSorted.slice(0, 20).length * 32)}}>
+                <ReactECharts option={getBarOption(provinceSorted.slice(0, 20).map(([p]) => p), provinceSorted.slice(0, 20).map(([, v]) => v), '#0f766e')} style={{height:'100%'}} opts={{renderer:'svg'}} />
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -452,6 +581,51 @@ export default function OverviewDashboard({ orders, loading, onRefresh }) {
           })()}
         </div>
       )}
+    </div>
+  )
+}
+
+function MatrixTable({ rows, columns, labelKey, maxValue }) {
+  if (!rows.length || !columns.length) {
+    return <div className="empty-sm">暂无足够数据生成交叉分析</div>
+  }
+
+  return (
+    <div className="matrix-table-wrap">
+      <table className="matrix-table">
+        <thead>
+          <tr>
+            <th>{labelKey === 'store' ? '店铺' : '品类'}</th>
+            {columns.map(col => <th key={col}>{col}</th>)}
+            <th>合计</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(row => (
+            <tr key={row[labelKey]}>
+              <td className="matrix-row-label">{row[labelKey]}</td>
+              {row.values.map((value, i) => {
+                const intensity = value / Math.max(1, maxValue)
+                return (
+                  <td key={`${row[labelKey]}-${columns[i]}`}>
+                    <span
+                      className="matrix-cell"
+                      style={{
+                        background: value > 0 ? `rgba(99,102,241,${0.08 + intensity * 0.7})` : '#f8fafc',
+                        color: intensity > 0.55 ? '#fff' : '#1e293b',
+                      }}
+                      title={`${row[labelKey]} / ${columns[i]}: ${value}`}
+                    >
+                      {value || '-'}
+                    </span>
+                  </td>
+                )
+              })}
+              <td className="matrix-total">{row.total}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }
