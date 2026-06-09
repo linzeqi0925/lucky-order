@@ -433,6 +433,7 @@ body {
 .kpi-v2-change{font-size:10px;padding:2px 8px;border-radius:4px;font-weight:600}
 .kpi-v2-change.up{background:#dcfce7;color:var(--success)}
 .kpi-v2-change.down{background:#fef2f2;color:var(--danger)}
+.kpi-v2-change.muted{background:#f1f5f9;color:var(--text3)}
 
 .v2-ai-content{padding:6px 0}
 .v2-ai-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}

@@ -5,10 +5,8 @@ import KpiCard from '../components/KpiCard'
 import MonitorCard from '../components/MonitorCard'
 import FilterBar from '../components/FilterBar'
 import OrderTable from '../components/OrderTable'
-import CountryMap from '../components/CountryMap'
 import {
   getBarOption, getPieOption, getTrendOption,
-  getDayComp, getPeriodComp,
   findDrops, renderAIAlerts, renderAIGrowth,
 } from '../lib/charts'
 
@@ -37,6 +35,12 @@ export default function OverviewDashboard({ orders, orderItems = [], loading, on
   const total = filtered.length
   const totalQty = filtered.reduce((s, o) => s + o.quantity, 0)
   const totalAmt = filtered.reduce((s, o) => s + parseFloat(o.total_amount || 0), 0)
+  const kpiComparison = getKpiComparison(orders, {
+    dateRange,
+    filterCategory,
+    filterSupplier,
+    filterStore,
+  })
 
   // 品类统计
   const catMap = {}
@@ -131,9 +135,7 @@ export default function OverviewDashboard({ orders, orderItems = [], loading, on
   ].filter(Boolean)
 
   // 环比
-  const period7 = getPeriodComp(orders, 7)
-  const orderChange = period7 > 0 ? period7 : 0
-  const qtyChange = getPeriodComp(orders, 7, 'qty')
+  const recent7 = getRecentPeriodStats(filtered, 7)
 
   // 近7天趋势
   const now = new Date()
@@ -209,14 +211,17 @@ export default function OverviewDashboard({ orders, orderItems = [], loading, on
         <div className="v2-kpi-header"><span className="section-badge">📊 经营概览</span></div>
         <div className="v2-kpi-grid">
           <KpiCard icon="📦" label="总订单" value={total} fmt={v => v.toLocaleString()}
-            yesterday={getDayComp(orders, 1)} week={getPeriodComp(orders, 7)} month={getPeriodComp(orders, 30)} />
+            changes={[kpiComparison.orderCount]} />
           <KpiCard icon="💰" label="总销售额" value={totalAmt} fmt={v => `¥${v.toFixed(0)}`}
-            yesterday={getDayComp(orders, 1, 'amount')} week={getPeriodComp(orders, 7, 'amount')} month={getPeriodComp(orders, 30, 'amount')} />
+            changes={[kpiComparison.amount]} />
           <KpiCard icon="📊" label="总出库量" value={totalQty} fmt={v => v.toLocaleString()}
-            yesterday={getDayComp(orders, 1, 'qty')} week={getPeriodComp(orders, 7, 'qty')} month={getPeriodComp(orders, 30, 'qty')} />
-          <KpiCard icon="🎯" label="客单价" value={total > 0 ? totalAmt / total : 0} fmt={v => `¥${v.toFixed(0)}`} />
-          <KpiCard icon="🌍" label="覆盖国家" value={countrySorted.length} fmt={v => v.toString()} />
-          <KpiCard icon="🏪" label="运营店铺" value={storeSorted.length} fmt={v => v.toString()} />
+            changes={[kpiComparison.quantity]} />
+          <KpiCard icon="🎯" label="客单价" value={total > 0 ? totalAmt / total : 0} fmt={v => `¥${v.toFixed(0)}`}
+            changes={[kpiComparison.avgOrderValue]} />
+          <KpiCard icon="🌍" label="覆盖国家" value={countrySorted.length} fmt={v => v.toString()}
+            changes={[kpiComparison.countryCount]} />
+          <KpiCard icon="🏪" label="运营店铺" value={storeSorted.length} fmt={v => v.toString()}
+            changes={[kpiComparison.storeCount]} />
         </div>
       </div>
 
@@ -244,11 +249,6 @@ export default function OverviewDashboard({ orders, orderItems = [], loading, on
             </div>
           )}
         </div>
-      </div>
-
-      {/* 全球地图 */}
-      <div className="v2-map-section">
-        <CountryMap orders={filtered} filters={dateRange} />
       </div>
 
       {/* 趋势 */}
@@ -309,8 +309,8 @@ export default function OverviewDashboard({ orders, orderItems = [], loading, on
             </div>
           </div>
           <div className="stats-grid">
-            <div className="stat-item"><span className="stat-l">近7天订单</span><span className="stat-v">{period7} <span className={`trend-s ${orderChange>=0?'up':'down'}`}>{orderChange>=0?'↑':'↓'}{Math.abs(orderChange)}%</span></span></div>
-            <div className="stat-item"><span className="stat-l">近7天出库量</span><span className="stat-v">{qtyChange} <span className={`trend-s ${qtyChange>=0?'up':'down'}`}>{qtyChange>=0?'↑':'↓'}{Math.abs(qtyChange)}%</span></span></div>
+            <div className="stat-item"><span className="stat-l">近7天订单</span><span className="stat-v">{recent7.orders} <span className={`trend-s ${recent7.orderChange>=0?'up':'down'}`}>{recent7.hasPrevious ? `${recent7.orderChange>=0?'↑':'↓'}${Math.abs(recent7.orderChange)}%` : '暂无对比'}</span></span></div>
+            <div className="stat-item"><span className="stat-l">近7天出库量</span><span className="stat-v">{recent7.quantity} <span className={`trend-s ${recent7.qtyChange>=0?'up':'down'}`}>{recent7.hasPrevious ? `${recent7.qtyChange>=0?'↑':'↓'}${Math.abs(recent7.qtyChange)}%` : '暂无对比'}</span></span></div>
             <div className="stat-item"><span className="stat-l">日均出库</span><span className="stat-v">{(totalQty/Math.max(1,now.getDate())).toFixed(1)}件</span></div>
             <div className="stat-item"><span className="stat-l">完成率</span><span className="stat-v">{(((statusMap['completed']||0) / Math.max(1, total)) * 100).toFixed(0)}%</span></div>
           </div>
@@ -583,6 +583,112 @@ export default function OverviewDashboard({ orders, orderItems = [], loading, on
       )}
     </div>
   )
+}
+
+function getKpiComparison(orders, filters) {
+  const baseOrders = orders.filter(o => {
+    if (filters.filterCategory && o.product_category !== filters.filterCategory) return false
+    if (filters.filterSupplier && o.supplier !== filters.filterSupplier) return false
+    if (filters.filterStore && o.store_name !== filters.filterStore) return false
+    return Boolean(o.order_date)
+  })
+
+  const period = getComparisonPeriod(baseOrders, filters.dateRange)
+  const label = period.isCustom ? '较上期' : '近30天'
+  if (!period.currentStart || !period.currentEnd || !period.prevStart || !period.prevEnd) {
+    return buildUnavailableComparison(label)
+  }
+
+  const current = baseOrders.filter(o => o.order_date >= period.currentStart && o.order_date <= period.currentEnd)
+  const previous = baseOrders.filter(o => o.order_date >= period.prevStart && o.order_date <= period.prevEnd)
+
+  const metrics = {
+    orderCount: arr => arr.length,
+    quantity: arr => arr.reduce((sum, o) => sum + (o.quantity || 0), 0),
+    amount: arr => arr.reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0),
+    avgOrderValue: arr => {
+      const total = arr.reduce((sum, o) => sum + parseFloat(o.total_amount || 0), 0)
+      return arr.length ? total / arr.length : 0
+    },
+    countryCount: arr => new Set(arr.map(o => o.country).filter(Boolean)).size,
+    storeCount: arr => new Set(arr.map(o => o.store_name).filter(Boolean)).size,
+  }
+
+  return Object.fromEntries(
+    Object.entries(metrics).map(([key, getter]) => [
+      key,
+      makeComparison(label, getter(current), getter(previous)),
+    ])
+  )
+}
+
+function getComparisonPeriod(orders, dateRange) {
+  const dates = orders.map(o => o.order_date).filter(Boolean).sort()
+  if (dates.length === 0) return {}
+
+  const minDate = dates[0]
+  const maxDate = dates[dates.length - 1]
+  const isCustom = Boolean(dateRange.start || dateRange.end)
+  const currentStart = dateRange.start || (isCustom ? minDate : addDays(maxDate, -29))
+  const currentEnd = dateRange.end || maxDate
+  if (currentStart > currentEnd) return {}
+
+  const days = Math.max(1, diffDays(currentStart, currentEnd) + 1)
+  const prevEnd = addDays(currentStart, -1)
+  const prevStart = addDays(prevEnd, -(days - 1))
+  return { currentStart, currentEnd, prevStart, prevEnd, isCustom }
+}
+
+function makeComparison(label, current, previous) {
+  if (!Number.isFinite(previous) || previous <= 0) return { label, unavailable: true }
+  return { label, val: Math.round(((current - previous) / previous) * 100) }
+}
+
+function buildUnavailableComparison(label) {
+  return {
+    orderCount: { label, unavailable: true },
+    quantity: { label, unavailable: true },
+    amount: { label, unavailable: true },
+    avgOrderValue: { label, unavailable: true },
+    countryCount: { label, unavailable: true },
+    storeCount: { label, unavailable: true },
+  }
+}
+
+function getRecentPeriodStats(orders, days) {
+  const dates = orders.map(o => o.order_date).filter(Boolean).sort()
+  if (dates.length === 0) {
+    return { orders: 0, quantity: 0, orderChange: 0, qtyChange: 0, hasPrevious: false }
+  }
+
+  const end = dates[dates.length - 1]
+  const start = addDays(end, -(days - 1))
+  const prevEnd = addDays(start, -1)
+  const prevStart = addDays(prevEnd, -(days - 1))
+  const current = orders.filter(o => o.order_date >= start && o.order_date <= end)
+  const previous = orders.filter(o => o.order_date >= prevStart && o.order_date <= prevEnd)
+  const quantity = arr => arr.reduce((sum, o) => sum + (o.quantity || 0), 0)
+  const prevQty = quantity(previous)
+
+  return {
+    orders: current.length,
+    quantity: quantity(current),
+    orderChange: previous.length > 0 ? Math.round(((current.length - previous.length) / previous.length) * 100) : 0,
+    qtyChange: prevQty > 0 ? Math.round(((quantity(current) - prevQty) / prevQty) * 100) : 0,
+    hasPrevious: previous.length > 0 || prevQty > 0,
+  }
+}
+
+function addDays(dateText, days) {
+  const date = new Date(`${dateText}T00:00:00`)
+  date.setDate(date.getDate() + days)
+  return date.toISOString().split('T')[0]
+}
+
+function diffDays(start, end) {
+  const s = new Date(`${start}T00:00:00`)
+  const e = new Date(`${end}T00:00:00`)
+  return Math.round((e - s) / 86400000)
 }
 
 function MatrixTable({ rows, columns, labelKey, maxValue }) {
