@@ -399,6 +399,40 @@ body {
 .modal-close:hover {background:#f1f5f9;color:var(--text)}
 .modal-card h3 {font-size:18px;font-weight:700;margin-bottom:4px}
 .modal-desc {font-size:13px;color:var(--text2);margin-bottom:20px;line-height:1.6}
+
+.rules-guide-grid {
+  display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0 18px
+}
+.rules-guide-item {
+  background:#f8fafc;border:1px solid var(--border);border-radius:8px;
+  padding:12px;display:flex;flex-direction:column;gap:5px
+}
+.rules-guide-item strong {font-size:13px;color:var(--text)}
+.rules-guide-item span {font-size:12px;color:var(--text2);line-height:1.6}
+@media(max-width:700px){.rules-guide-grid{grid-template-columns:1fr}}
+
+.ops-summary-list {display:grid;grid-template-columns:1fr;gap:10px}
+.ops-summary-item {
+  display:flex;align-items:flex-start;justify-content:space-between;gap:14px;
+  padding:12px;border:1px solid var(--border);border-radius:8px;background:#f8fafc
+}
+.ops-summary-item strong {font-size:15px;color:var(--text);max-width:45%;word-break:break-word}
+.ops-summary-item span {font-size:12px;color:var(--text2);line-height:1.6;text-align:right}
+.matrix-table tr.row-active td {background:#eef2ff;color:#312e81;font-weight:700}
+.matrix-table tbody tr {cursor:pointer}
+
+.toolbar-inline {display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.filter-input.compact {width:auto;min-width:160px;height:31px;padding:5px 10px;font-size:12px}
+.selector-grid {
+  display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px
+}
+.selector-chip {
+  border:1px solid var(--border);background:#f8fafc;color:var(--text2);
+  border-radius:999px;padding:6px 12px;font-size:12px;font-weight:600;
+  cursor:pointer;transition:var(--transition);font-family:inherit
+}
+.selector-chip:hover {border-color:var(--primary);color:var(--primary)}
+.selector-chip.active {background:var(--primary-bg);border-color:var(--primary);color:var(--primary-dark)}
 .share-url-box {display:flex;gap:8px;margin-bottom:16px}
 .share-input {flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-size:13px;background:#f8fafc;color:var(--text);cursor:text}
 .share-info {display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text3)}

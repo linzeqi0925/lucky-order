@@ -13,29 +13,25 @@
 
 import { Component, useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { useOrders, useOrderItems, useFilters } from '../hooks/useOrders'
+import { useOrders, useOrderItems } from '../hooks/useOrders'
 import OverviewDashboard from './OverviewDashboard'
 import SegmentAnalysis from './SegmentAnalysis'
 import SkuCenter from './SkuCenter'
+import CategoryCenter from './CategoryCenter'
 import NewProductCenter from './NewProductCenter'
-import CountryCenter from './CountryCenter'
-import StoreCenter from './StoreCenter'
 import AiInsightCenter from './AiInsightCenter'
-import DataCenter from './DataCenter'
-import DataImport from './DataImport'
+import DataManagement from './DataManagement'
 import RulesModal from '../components/RulesModal'
 import { getEffectiveOrderItems } from '../lib/skuFallback'
 
 const NAV_ITEMS = [
-  { key: 'overview',    label: '经营总览', icon: '📊' },
-  { key: 'import',      label: '数据导入', icon: '📥' },
-  { key: 'segment',     label: '局部分析', icon: '🔎' },
-  { key: 'sku',         label: 'SKU分析',  icon: '📦' },
-  { key: 'new',         label: '新品分析', icon: '🆕' },
-  { key: 'country',     label: '国家分析', icon: '🌍' },
-  { key: 'store',       label: '店铺分析', icon: '🏪' },
-  { key: 'ai',          label: 'AI洞察',   icon: '🧠' },
-  { key: 'data',        label: '数据中心', icon: '💾' },
+  { key: 'overview', label: '经营总览', icon: '📊', desc: '订单、SKU、店铺和国家表现总览' },
+  { key: 'orders', label: '订单分析', icon: '📋', desc: '订单趋势、明细、店铺和国家维度' },
+  { key: 'sku', label: 'SKU 分析', icon: '📦', desc: 'SKU 排行、趋势、爆款和滞销预警' },
+  { key: 'category', label: '品类分析', icon: '🏷️', desc: '经营一级品类、店铺结构和出库占比' },
+  { key: 'new', label: '新品观察', icon: '🆕', desc: '按品类观察新品起量和覆盖 SKU' },
+  { key: 'risk', label: '异常监控', icon: '🚨', desc: '下降、滞销、集中度和经营建议' },
+  { key: 'data', label: '数据管理', icon: '💾', desc: '导入、清空、导出和分类规则' },
 ]
 
 class ContentErrorBoundary extends Component {
@@ -149,7 +145,7 @@ export default function Dashboard({ session }) {
           <div className="logo-box">LO</div>
           <div>
             <h2>Lucky Order</h2>
-            <span>出库数据分析平台</span>
+            <span>跨境履约经营工具</span>
           </div>
         </div>
         <nav className="sidebar-nav">
@@ -173,7 +169,7 @@ export default function Dashboard({ session }) {
         <header className="page-header">
           <div>
             <h1>{activeItem.label}</h1>
-            <p>{activeItem.key === 'overview' ? '订单、SKU、店铺和国家表现总览' : 'Lucky Order 经营分析模块'}</p>
+            <p>{activeItem.desc}</p>
           </div>
           <div className="page-actions">
             <button className="btn-outline-sm" onClick={() => setShowRules(true)} title="人工分类 / 品类归并">🏷️ 规则</button>
@@ -197,31 +193,32 @@ export default function Dashboard({ session }) {
                 orderItems={effectiveOrderItems}
                 loading={loading}
                 onRefresh={loadOrders}
+                summaryOnly
               />
+            )}
+            {activeNav === 'orders' && (
+              <SegmentAnalysis orders={orders} orderItems={effectiveOrderItems} />
             )}
             {activeNav === 'sku' && (
               <SkuCenter orders={orders} orderItems={effectiveOrderItems} />
             )}
-            {activeNav === 'segment' && (
-              <SegmentAnalysis orders={orders} orderItems={effectiveOrderItems} />
+            {activeNav === 'category' && (
+              <CategoryCenter orders={orders} orderItems={effectiveOrderItems} />
             )}
             {activeNav === 'new' && (
               <NewProductCenter orders={orders} orderItems={effectiveOrderItems} />
             )}
-            {activeNav === 'country' && (
-              <CountryCenter orders={orders} orderItems={effectiveOrderItems} />
-            )}
-            {activeNav === 'store' && (
-              <StoreCenter orders={orders} orderItems={effectiveOrderItems} />
-            )}
-            {activeNav === 'ai' && (
+            {activeNav === 'risk' && (
               <AiInsightCenter orders={orders} orderItems={effectiveOrderItems} />
             )}
-            {activeNav === 'import' && (
-              <DataImport onImported={handleImported} />
-            )}
             {activeNav === 'data' && (
-              <DataCenter user={user} orders={orders} onRefresh={() => { loadOrders(); loadItems() }} />
+              <DataManagement
+                user={user}
+                orders={orders}
+                onImported={handleImported}
+                onRefresh={() => { loadOrders(); loadItems() }}
+                onOpenRules={() => setShowRules(true)}
+              />
             )}
           </ContentErrorBoundary>
         </div>

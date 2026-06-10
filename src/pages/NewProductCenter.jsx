@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
-import { getBarOption, getTrendOption } from '../lib/charts'
+import { getBarOption } from '../lib/charts'
 
 export default function NewProductCenter({ orders, orderItems }) {
   const [windowDays, setWindowDays] = useState(30)
+  const [selectedCategories, setSelectedCategories] = useState([])
 
   const orderMap = useMemo(() => {
     const map = {}
@@ -87,28 +88,41 @@ export default function NewProductCenter({ orders, orderItems }) {
 
   const trend = useMemo(() => {
     const now = new Date()
-    const map = {}
+    const dateMap = {}
     for (let i = windowDays - 1; i >= 0; i--) {
       const d = new Date(now)
       d.setDate(d.getDate() - i)
-      map[d.toISOString().split('T')[0]] = 0
+      dateMap[d.toISOString().split('T')[0]] = true
     }
-    const categorySet = new Set(newCategories.map(p => p.category))
+    const fallbackCategories = newCategories.slice(0, 3).map(p => p.category)
+    const activeCategories = selectedCategories.filter(category => newCategories.some(p => p.category === category))
+    const categories = activeCategories.length > 0 ? activeCategories : fallbackCategories
+    const seriesMap = Object.fromEntries(categories.map(category => [category, Object.fromEntries(Object.keys(dateMap).map(day => [day, 0]))]))
     items.forEach(item => {
-      if (categorySet.has(item.category) && map[item.order_date] !== undefined) {
-        map[item.order_date] += item.quantity || 0
+      if (seriesMap[item.category] && seriesMap[item.category][item.order_date] !== undefined) {
+        seriesMap[item.category][item.order_date] += item.quantity || 0
       }
     })
-    const entries = Object.entries(map)
+    const labels = Object.keys(dateMap).map(day => day.slice(5))
     return {
-      labels: entries.map(([d]) => d.slice(5)),
-      values: entries.map(([, v]) => v),
+      labels,
+      categories,
+      series: categories.map(category => ({
+        name: category,
+        data: Object.values(seriesMap[category]),
+      })),
     }
-  }, [items, newCategories, windowDays])
+  }, [items, newCategories, selectedCategories, windowDays])
 
   const totalQty = newCategories.reduce((sum, p) => sum + p.totalQty, 0)
   const rising = newCategories.filter(p => p.status === '起量中').length
   const totalSkuCount = newCategories.reduce((sum, p) => sum + p.skuCount, 0)
+  const toggleCategory = (category) => {
+    setSelectedCategories(prev => prev.includes(category)
+      ? prev.filter(item => item !== category)
+      : [...prev, category]
+    )
+  }
 
   return (
     <div className="dashboard-view">
@@ -137,8 +151,19 @@ export default function NewProductCenter({ orders, orderItems }) {
         <>
           <div className="chart-row">
             <div className="chart-card wide">
-              <div className="chart-title">新品出库趋势</div>
-              <ReactECharts option={getTrendOption(trend.labels, trend.values, '#eab308')} style={{height:280}} opts={{renderer:'svg'}} />
+              <div className="chart-title">自选新品出库走势</div>
+              <div className="selector-grid">
+                {newCategories.slice(0, 18).map(item => (
+                  <button
+                    key={item.category}
+                    className={`selector-chip ${trend.categories.includes(item.category) ? 'active' : ''}`}
+                    onClick={() => toggleCategory(item.category)}
+                  >
+                    {item.category}
+                  </button>
+                ))}
+              </div>
+              <ReactECharts option={getMultiTrendOption(trend.labels, trend.series)} style={{height:300}} opts={{renderer:'svg'}} />
             </div>
           </div>
 
@@ -170,7 +195,7 @@ export default function NewProductCenter({ orders, orderItems }) {
                 <thead><tr><th>#</th><th>品类</th><th>代表产品</th><th>首次出库</th><th>累计</th><th>近7天</th><th>日均</th><th>SKU数</th><th>代表SKU</th><th>店铺</th><th>国家</th><th>状态</th></tr></thead>
                 <tbody>
                   {newCategories.map((p, i) => (
-                    <tr key={p.category}>
+                    <tr key={p.category} onClick={() => toggleCategory(p.category)} className={trend.categories.includes(p.category) ? 'row-active' : ''}>
                       <td>{i + 1}</td>
                       <td><span className="cat-tag">{p.category}</span></td>
                       <td>{p.productNames || '-'}</td>
@@ -193,4 +218,23 @@ export default function NewProductCenter({ orders, orderItems }) {
       )}
     </div>
   )
+}
+
+function getMultiTrendOption(labels, series) {
+  return {
+    tooltip: { trigger: 'axis' },
+    legend: { type: 'scroll', top: 0 },
+    grid: { left: 45, right: 18, top: 42, bottom: 28 },
+    xAxis: { type: 'category', data: labels, axisLabel: { fontSize: 11 } },
+    yAxis: { type: 'value', splitLine: { lineStyle: { color: '#f1f5f9' } } },
+    series: series.map(item => ({
+      name: item.name,
+      type: 'line',
+      data: item.data,
+      smooth: true,
+      symbol: 'circle',
+      symbolSize: 5,
+      lineStyle: { width: 2 },
+    })),
+  }
 }

@@ -8,16 +8,17 @@ import {
   getBarOption, getPieOption, getTrendOption,
 } from '../lib/charts'
 
-export default function OverviewDashboard({ orders, orderItems = [], loading, onRefresh }) {
+export default function OverviewDashboard({ orders, orderItems = [], loading, onRefresh, initialTab = 'overview', summaryOnly = false }) {
   const [dateRange, setDateRange] = useState({ start: '', end: '' })
   const [filterCategory, setFilterCategory] = useState('')
   const [filterSupplier, setFilterSupplier] = useState('')
   const [filterStore, setFilterStore] = useState('')
   const [drillCat, setDrillCat] = useState('')
-  const [activeTab, setActiveTab] = useState('overview')
+  const [activeTab, setActiveTab] = useState(initialTab)
   const [compareMode, setCompareMode] = useState(false)
   const [period1, setPeriod1] = useState({ start: '', end: '' })
   const [period2, setPeriod2] = useState({ start: '', end: '' })
+  const [summaryGrain, setSummaryGrain] = useState('day')
 
   const filtered = orders.filter(o => {
     if (filterCategory && o.product_category !== filterCategory) return false
@@ -138,6 +139,7 @@ export default function OverviewDashboard({ orders, orderItems = [], loading, on
 
   // 近7天趋势
   const dayStats = getDateSeriesStats(filtered, 7, referenceDate)
+  const summaryTrend = getGroupedDateSeries(filtered, summaryGrain)
 
   // 月度趋势
   const monthMap = {}
@@ -182,7 +184,22 @@ export default function OverviewDashboard({ orders, orderItems = [], loading, on
 
       {/* KPI */}
       <div className="v2-kpi-section">
-        <div className="v2-kpi-header"><span className="section-badge">📊 经营概览</span></div>
+        <div className="v2-kpi-header">
+          <span className="section-badge">📊 经营概览</span>
+          {summaryOnly && (
+            <div className="trend-tabs">
+              {[
+                ['day', '日'],
+                ['week', '周'],
+                ['month', '月'],
+              ].map(([key, label]) => (
+                <button key={key} className={`trend-tab ${summaryGrain === key ? 'active' : ''}`} onClick={() => setSummaryGrain(key)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <div className="v2-kpi-grid">
           <KpiCard icon="📦" label="总订单" value={total} fmt={v => v.toLocaleString()}
             changes={[kpiComparison.orderCount]} />
@@ -198,6 +215,50 @@ export default function OverviewDashboard({ orders, orderItems = [], loading, on
             changes={[kpiComparison.storeCount]} />
         </div>
       </div>
+
+      {summaryOnly && (
+        <div className="tab-content">
+          <div className="chart-row">
+            <div className="chart-card wide">
+              <div className="chart-title">{summaryGrain === 'day' ? '按日' : summaryGrain === 'week' ? '按周' : '按月'}订单数 / 出库量趋势</div>
+              <ReactECharts option={getDualTrendOption(summaryTrend.labels, summaryTrend.orders, summaryTrend.quantity)} style={{height:280}} opts={{renderer:'svg'}} />
+            </div>
+          </div>
+          <div className="chart-row">
+            <div className="chart-card">
+              <div className="chart-title">经营一级品类 TOP 10</div>
+              <div style={{height: catSorted.length > 0 ? Math.max(240, catSorted.slice(0, 10).length * 36) : 240}}>
+                <ReactECharts option={getBarOption(catSorted.slice(0, 10).map(([c]) => c), catSorted.slice(0, 10).map(([, v]) => v.qty), '#6366f1')} style={{height:'100%'}} opts={{renderer:'svg'}} />
+              </div>
+            </div>
+            <div className="chart-card">
+              <div className="chart-title">履约关注点</div>
+              <div className="ops-summary-list">
+                <div className="ops-summary-item">
+                  <strong>{storeSorted[0]?.[0] || '-'}</strong>
+                  <span>主力店铺，占当前出库 {storeSorted[0] ? ((storeSorted[0][1] / Math.max(1, totalQty)) * 100).toFixed(1) : 0}%</span>
+                </div>
+                <div className="ops-summary-item">
+                  <strong>{countrySorted[0]?.[0] || '-'}</strong>
+                  <span>主力国家，占当前出库 {countrySorted[0] ? ((countrySorted[0][1] / Math.max(1, totalQty)) * 100).toFixed(1) : 0}%</span>
+                </div>
+                <div className="ops-summary-item">
+                  <strong>{skuSorted[0]?.sku || '-'}</strong>
+                  <span>最高销量 SKU，占当前出库 {topSkuShare}%</span>
+                </div>
+                <div className="ops-summary-item">
+                  <strong>{catSorted.find(([name]) => name === '未分类')?.[1]?.qty || 0}</strong>
+                  <span>未分类出库量，建议先完善人工分类规则</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          {total === 0 && <div className="empty-state">📥 暂无数据，请先导入订单数据</div>}
+        </div>
+      )}
+
+      {summaryOnly ? null : (
+      <>
 
       {/* Tab 导航 */}
       <div className="tab-bar">
@@ -499,6 +560,8 @@ export default function OverviewDashboard({ orders, orderItems = [], loading, on
           })()}
         </div>
       )}
+      </>
+      )}
     </div>
   )
 }
@@ -626,6 +689,37 @@ function getDateSeriesStats(orders, days, endDate) {
     orders: labels.map(day => orderMap[day]),
     quantity: labels.map(day => qtyMap[day]),
   }
+}
+
+function getGroupedDateSeries(orders, grain) {
+  const map = {}
+  orders.forEach(order => {
+    if (!order.order_date) return
+    const key = getDateGroupKey(order.order_date, grain)
+    if (!map[key]) map[key] = { orders: 0, quantity: 0 }
+    map[key].orders += 1
+    map[key].quantity += order.quantity || 0
+  })
+
+  const entries = Object.entries(map).sort((a, b) => a[0].localeCompare(b[0]))
+  return {
+    labels: entries.map(([key]) => key),
+    orders: entries.map(([, value]) => value.orders),
+    quantity: entries.map(([, value]) => value.quantity),
+  }
+}
+
+function getDateGroupKey(dateText, grain) {
+  if (grain === 'month') return dateText.slice(0, 7)
+  if (grain === 'week') {
+    const date = new Date(`${dateText}T00:00:00`)
+    const day = date.getDay() || 7
+    date.setDate(date.getDate() + 4 - day)
+    const yearStart = new Date(date.getFullYear(), 0, 1)
+    const week = Math.ceil((((date - yearStart) / 86400000) + 1) / 7)
+    return `${date.getFullYear()}-W${String(week).padStart(2, '0')}`
+  }
+  return dateText.slice(5)
 }
 
 function getDualTrendOption(labels, orders, quantity) {
