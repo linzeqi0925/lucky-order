@@ -30,6 +30,7 @@ export async function importOrders(userId, rawRows) {
         product_category: row.product_category || '未分类',
         total_amount: row.total_amount || 0,
         order_date: row.order_date || '',
+        remark: row.remark || '',
         totalQty: 0,
         items: [],
       })
@@ -41,6 +42,7 @@ export async function importOrders(userId, rawRows) {
     if (row.order_date) o.order_date = row.order_date
     if (row.product_name) o.product_name = row.product_name
     if (row.product_category) o.product_category = row.product_category
+    if (row.remark) o.remark = row.remark
 
     if (Array.isArray(row.items) && row.items.length > 0) {
       row.items.forEach(item => {
@@ -70,11 +72,19 @@ export async function importOrders(userId, rawRows) {
   const existingSet = new Set((existing || []).map(r => r.order_no))
   details.push(`已有订单: ${existingSet.size}`)
 
+  const { error: remarkCheckError } = await supabase
+    .from('orders')
+    .select('remark')
+    .eq('user_id', userId)
+    .limit(1)
+  const canWriteRemark = !remarkCheckError
+  if (!canWriteRemark) details.push('提示：当前 orders 表未启用 remark 字段，物流/城市字段暂不长期保存')
+
   // 新增 vs 跳过
   const newOrders = []
   for (const order of orderMap.values()) {
     if (existingSet.has(order.order_no)) { skipped++; continue }
-    newOrders.push({
+    const payload = {
       user_id: userId,
       order_no: String(order.order_no),
       store_name: order.store_name || '',
@@ -86,7 +96,9 @@ export async function importOrders(userId, rawRows) {
       total_amount: order.total_amount || 0,
       order_date: order.order_date || new Date().toISOString().split('T')[0],
       order_status: 'completed',
-    })
+    }
+    if (canWriteRemark) payload.remark = order.remark || ''
+    newOrders.push(payload)
   }
 
   details.push(`待新增: ${newOrders.length}，跳过重复: ${skipped}`)
@@ -103,19 +115,22 @@ export async function importOrders(userId, rawRows) {
   let updated = 0
   for (const order of orderMap.values()) {
     if (!existingSet.has(order.order_no)) continue
+    const payload = {
+      store_name: order.store_name || '',
+      country: order.country || '',
+      province: order.province || '',
+      product_name: order.product_name || '',
+      product_category: order.product_category || '未分类',
+      quantity: order.totalQty,
+      total_amount: order.total_amount || 0,
+      order_date: order.order_date || new Date().toISOString().split('T')[0],
+      order_status: 'completed',
+    }
+    if (canWriteRemark) payload.remark = order.remark || ''
+
     const { error } = await supabase
       .from('orders')
-      .update({
-        store_name: order.store_name || '',
-        country: order.country || '',
-        province: order.province || '',
-        product_name: order.product_name || '',
-        product_category: order.product_category || '未分类',
-        quantity: order.totalQty,
-        total_amount: order.total_amount || 0,
-        order_date: order.order_date || new Date().toISOString().split('T')[0],
-        order_status: 'completed',
-      })
+      .update(payload)
       .eq('user_id', userId)
       .eq('order_no', String(order.order_no))
     if (error) throw new Error(`更新已有订单失败: ${error.message}`)

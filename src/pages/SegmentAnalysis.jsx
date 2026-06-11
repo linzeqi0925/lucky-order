@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
-import { getBarOption, getPieOption, getTrendOption } from '../lib/charts'
+import { getBarOption, getPieOption, getTrendOption, parseMeta } from '../lib/charts'
 
 export default function SegmentAnalysis({ orders, orderItems }) {
   const [filters, setFilters] = useState({
@@ -69,11 +69,24 @@ export default function SegmentAnalysis({ orders, orderItems }) {
     })
     return Object.entries(map).sort((a, b) => b[1] - a[1])
   }
+  const rankKnown = (list, keyFn, qtyFn = x => x.quantity || 0) => {
+    const map = {}
+    list.forEach(item => {
+      const key = keyFn(item)
+      if (!key) return
+      map[key] = (map[key] || 0) + qtyFn(item)
+    })
+    return Object.entries(map).sort((a, b) => b[1] - a[1])
+  }
 
   const storeRank = rank(filteredOrders, o => o.store_name)
   const countryRank = rank(filteredOrders, o => o.country)
   const categoryRank = rank(filteredOrders, o => o.product_category || '未分类')
   const skuRank = rank(filteredItems, i => i.sku, i => i.quantity || 0)
+  const cityRank = rankKnown(filteredOrders, o => parseMeta(o.remark, '城市'))
+  const logisticsChannelRank = rankKnown(filteredOrders, o => parseMeta(o.remark, '物流渠道'))
+  const logisticsCompanyRank = rankKnown(filteredOrders, o => parseMeta(o.remark, '物流公司'))
+  const trackingCovered = filteredOrders.filter(o => parseMeta(o.remark, '货运单号')).length
 
   const totalQty = filteredOrders.reduce((sum, o) => sum + (o.quantity || 0), 0)
   const trend = useMemo(() => {
@@ -104,9 +117,11 @@ export default function SegmentAnalysis({ orders, orderItems }) {
     if (unclassified > 0) list.push(`仍有 ${unclassified} 件未分类，建议先完善分类规则，否则品类分析会失真。`)
     if (skuRank.length > 0 && skuRank[0][1] / Math.max(1, totalQty) > 0.35) list.push('当前范围较依赖单个 SKU，建议检查是否存在爆品依赖或断货风险。')
     if (countryRank.length > 1) list.push('国家分布不止一个市场，可以对比不同国家的 TOP SKU，判断是否需要差异化备货。')
+    if (logisticsChannelRank[0]) list.push(`当前主要物流渠道是「${logisticsChannelRank[0][0]}」，贡献 ${logisticsChannelRank[0][1]} 件，可继续观察是否过于集中。`)
+    if (cityRank[0]) list.push(`当前出库最多城市是「${cityRank[0][0]}」，可用于判断区域集中度和偏远地区压力。`)
 
     return list
-  }, [filteredOrders.length, skuRank, storeRank, countryRank, categoryRank, totalQty])
+  }, [filteredOrders.length, skuRank, storeRank, countryRank, categoryRank, totalQty, logisticsChannelRank, cityRank])
 
   const set = (key, value) => setFilters(prev => ({ ...prev, [key]: value }))
   const clear = () => setFilters({ start: '', end: '', store: '', country: '', category: '', sku: '' })
@@ -149,6 +164,21 @@ export default function SegmentAnalysis({ orders, orderItems }) {
         <div className="chart-card"><div className="chart-title">店铺排行</div><div style={{height:Math.max(220, storeRank.length * 34)}}><ReactECharts option={getBarOption(storeRank.map(([k]) => k), storeRank.map(([, v]) => v), '#f97316')} style={{height:'100%'}} opts={{renderer:'svg'}} /></div></div>
         <div className="chart-card"><div className="chart-title">国家排行</div><div style={{height:Math.max(220, countryRank.length * 34)}}><ReactECharts option={getBarOption(countryRank.map(([k]) => k), countryRank.map(([, v]) => v), '#2563eb')} style={{height:'100%'}} opts={{renderer:'svg'}} /></div></div>
       </div>
+
+      {(logisticsChannelRank.length > 0 || logisticsCompanyRank.length > 0 || cityRank.length > 0) && (
+        <>
+          <div className="v2-kpi-grid" style={{gridTemplateColumns:'repeat(4,1fr)'}}>
+            <div className="kpi-card-v2"><div className="kpi-v2-top"><span className="kpi-v2-icon">🚚</span><span className="kpi-v2-label">物流渠道</span></div><div className="kpi-v2-value">{logisticsChannelRank.length}</div></div>
+            <div className="kpi-card-v2"><div className="kpi-v2-top"><span className="kpi-v2-icon">🏢</span><span className="kpi-v2-label">物流公司</span></div><div className="kpi-v2-value">{logisticsCompanyRank.length}</div></div>
+            <div className="kpi-card-v2"><div className="kpi-v2-top"><span className="kpi-v2-icon">📍</span><span className="kpi-v2-label">城市</span></div><div className="kpi-v2-value">{cityRank.length}</div></div>
+            <div className="kpi-card-v2"><div className="kpi-v2-top"><span className="kpi-v2-icon">🔎</span><span className="kpi-v2-label">货运单覆盖</span></div><div className="kpi-v2-value">{filteredOrders.length ? ((trackingCovered / filteredOrders.length) * 100).toFixed(0) : 0}%</div></div>
+          </div>
+          <div className="chart-row">
+            <div className="chart-card"><div className="chart-title">物流渠道排行</div><div style={{height:Math.max(220, logisticsChannelRank.length * 34)}}><ReactECharts option={getBarOption(logisticsChannelRank.map(([k]) => k), logisticsChannelRank.map(([, v]) => v), '#0f766e')} style={{height:'100%'}} opts={{renderer:'svg'}} /></div></div>
+            <div className="chart-card"><div className="chart-title">城市排行</div><div style={{height:Math.max(220, cityRank.slice(0, 20).length * 34)}}><ReactECharts option={getBarOption(cityRank.slice(0, 20).map(([k]) => k), cityRank.slice(0, 20).map(([, v]) => v), '#7c3aed')} style={{height:'100%'}} opts={{renderer:'svg'}} /></div></div>
+          </div>
+        </>
+      )}
 
       <div className="v2-ai-section">
         <div className="v2-ai-header"><span className="section-badge">运营建议</span></div>

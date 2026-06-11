@@ -284,12 +284,14 @@ export default function DataImport({ onImported }) {
 
             <div className="preview-table-wrap">
               <table className="preview-table">
-                <thead><tr><th>订单号</th><th>店铺</th><th>国家</th><th>商品/SKU</th><th>数量</th><th>日期</th><th>星期</th></tr></thead>
+                <thead><tr><th>订单号</th><th>店铺</th><th>国家</th><th>城市</th><th>物流</th><th>商品/SKU</th><th>数量</th><th>日期</th><th>星期</th></tr></thead>
                 <tbody>{preview.orders.map((o, i) => (
                   <tr key={i}>
                     <td><span className="orderno-sm">{o.order_no}</span></td>
                     <td>{o.store_name}</td>
                     <td>{o.country}</td>
+                    <td>{o.city || '-'}</td>
+                    <td>{o.logistics_channel || o.logistics_company || '-'}</td>
                     <td style={{maxWidth:200,overflow:'hidden',textOverflow:'ellipsis'}}>{o.product_name}</td>
                     <td>{o.quantity}</td>
                     <td>{o.order_date}</td>
@@ -377,7 +379,9 @@ function processMabang(header, dataRows) {
     if (!orderMap[row.order_no]) {
       orderMap[row.order_no] = {
         order_no: row.order_no, store_name: row.store_name, country: row.country,
-        province: row.province, totalQty: 0, items: [], productNames: [], rawDate: row.rawDate, product_category: '',
+        province: row.province, city: row.city, postal_code: row.postal_code,
+        logistics_company: row.logistics_company, logistics_channel: row.logistics_channel, tracking_no: row.tracking_no,
+        totalQty: 0, items: [], productNames: [], rawDate: row.rawDate, product_category: '',
       }
     }
     const o = orderMap[row.order_no]
@@ -394,6 +398,12 @@ function processMabang(header, dataRows) {
     if (row.product_name && !o.productNames.includes(row.product_name)) o.productNames.push(row.product_name)
     if (row.store_name) o.store_name = row.store_name
     if (row.country) o.country = row.country
+    if (row.province) o.province = row.province
+    if (row.city) o.city = row.city
+    if (row.postal_code) o.postal_code = row.postal_code
+    if (row.logistics_company) o.logistics_company = row.logistics_company
+    if (row.logistics_channel) o.logistics_channel = row.logistics_channel
+    if (row.tracking_no) o.tracking_no = row.tracking_no
     if (row.rawDate && !o.rawDate) o.rawDate = row.rawDate
     if (row.product_category && !o.product_category) o.product_category = row.product_category
   })
@@ -408,10 +418,13 @@ function processMabang(header, dataRows) {
 
     return {
       order_no: o.order_no, store_name: o.store_name, country: o.country, province: o.province,
+      city: o.city || '', postal_code: o.postal_code || '',
+      logistics_company: o.logistics_company || '', logistics_channel: o.logistics_channel || '', tracking_no: o.tracking_no || '',
       product_name: o.productNames.join('; ') || o.items.map(i => i.product_name).filter(Boolean).join(', '),
       product_sku: o.items.map(i => i.sku).filter(Boolean).join(';'),
       product_category: o.product_category || classifyProduct(classifyText),
       quantity: o.totalQty, order_date: dateStr, total_amount: 0, items: o.items,
+      remark: buildRemark(o),
     }
   })
 
@@ -420,6 +433,19 @@ function processMabang(header, dataRows) {
     cleanInfo: { rawRows: dataRows.length, mergedOrders: orders.length, filledDown, normalizedCountries, itemsCount },
     qualityIssues: { emptySku, emptyCountry, emptyDate, badQty },
   }
+}
+
+function buildRemark(order) {
+  return [
+    ['城市', order.city],
+    ['邮编', order.postal_code],
+    ['物流公司', order.logistics_company],
+    ['物流渠道', order.logistics_channel],
+    ['货运单号', order.tracking_no],
+  ]
+    .filter(([, value]) => String(value || '').trim())
+    .map(([key, value]) => `[${key}:${String(value).trim()}]`)
+    .join(' ')
 }
 
 function buildMabangFieldMap(header) {
