@@ -20,6 +20,7 @@ import SkuCenter from './SkuCenter'
 import CategoryCenter from './CategoryCenter'
 import NewProductCenter from './NewProductCenter'
 import AiInsightCenter from './AiInsightCenter'
+import AiAskCenter from './AiAskCenter'
 import DataManagement from './DataManagement'
 import RulesModal from '../components/RulesModal'
 import { getEffectiveOrderItems } from '../lib/skuFallback'
@@ -31,6 +32,7 @@ const NAV_ITEMS = [
   { key: 'category', label: '品类分析', icon: '🏷️', desc: '经营一级品类、店铺结构和出库占比' },
   { key: 'new', label: '新品观察', icon: '🆕', desc: '按品类观察新品起量和覆盖 SKU' },
   { key: 'risk', label: '异常监控', icon: '🚨', desc: '下降、滞销、集中度和经营建议' },
+  { key: 'ask', label: 'AI 问数', icon: '🧠', desc: '用自然语言提问，让 AI 分析当前出库数据' },
   { key: 'data', label: '数据管理', icon: '💾', desc: '导入、清空、导出和分类规则' },
 ]
 
@@ -210,6 +212,9 @@ export default function Dashboard({ session }) {
             )}
             {activeNav === 'risk' && (
               <AiInsightCenter orders={orders} orderItems={effectiveOrderItems} />
+            )}
+            {activeNav === 'ask' && (
+              <AiAskCenter orders={orders} orderItems={effectiveOrderItems} />
             )}
             {activeNav === 'data' && (
               <DataManagement
