@@ -3,12 +3,14 @@ import { supabase } from '../lib/supabase'
 import { buildAiDataSummary } from '../lib/aiSummary'
 
 const QUICK_QUESTIONS = [
+  '我今天打开看板，最应该先看哪几个问题？',
   '最近出库有没有明显下降？主要受哪些 SKU 或品类影响？',
   '帮我生成一份本周履约经营周报。',
   '哪些 SKU 需要重点关注库存或滞销风险？',
   '新品里哪些已经开始起量，哪些还需要观察？',
   '国家和城市分布有什么值得注意的地方？',
   '店铺之间的表现差异在哪里？',
+  '我的马帮导出字段还需要补什么，才能让分析更准？',
 ]
 
 export default function AiAskCenter({ orders, orderItems }) {
@@ -43,7 +45,7 @@ export default function AiAskCenter({ orders, orderItems }) {
       <div className="v2-kpi-section">
         <div className="v2-kpi-header">
           <span className="section-badge">🧠 AI 问数</span>
-          <span className="mapping-note">只发送聚合摘要，不发送地址和货运单号</span>
+          <span className="mapping-note">可问数据，也可问履约方法；只发送聚合摘要</span>
         </div>
         <div className="ai-ask-layout">
           <div className="ai-ask-main">
@@ -51,7 +53,7 @@ export default function AiAskCenter({ orders, orderItems }) {
               className="ai-question-input"
               value={question}
               onChange={event => setQuestion(event.target.value)}
-              placeholder="例如：最近 7 天哪些 SKU 下降明显？"
+              placeholder="例如：我今天应该优先看哪些异常？或者问：马帮字段怎么选更适合履约分析？"
             />
             <div className="ai-ask-actions">
               <button className="btn-primary-sm" onClick={() => ask()} disabled={loading || orders.length === 0}>
@@ -104,8 +106,8 @@ export default function AiAskCenter({ orders, orderItems }) {
           <div className="chart-card">
             <div className="chart-title">可提问方向</div>
             <div className="ai-alert-group">
-              <div className="ai-alert-item"><span className="ai-alert-icon">1</span><span className="ai-alert-text">问趋势：最近是否下降、哪天异常、周/月变化。</span></div>
-              <div className="ai-alert-item"><span className="ai-alert-icon">2</span><span className="ai-alert-text">问 SKU：增长、滞销、新品、集中度风险。</span></div>
+              <div className="ai-alert-item"><span className="ai-alert-icon">1</span><span className="ai-alert-text">问数据：最近是否下降、哪天异常、周/月变化。</span></div>
+              <div className="ai-alert-item"><span className="ai-alert-icon">2</span><span className="ai-alert-text">问业务：SKU、新品、品类归并、导出字段怎么选。</span></div>
               <div className="ai-alert-item"><span className="ai-alert-icon">3</span><span className="ai-alert-text">问履约：国家、城市、物流渠道、店铺组合。</span></div>
             </div>
           </div>
