@@ -14,6 +14,12 @@ import { classifyProduct } from '../lib/classifier'
 import { normalizeCountry } from '../lib/countries'
 import { findKey, formatExcelDate, getWeekday, getMonth } from '../lib/charts'
 
+const LUCKY_ORDER_TEMPLATE_FIELDS = [
+  '订单编号', '店铺名', '物流公司', '物流渠道', '货运单号', '国家', '国家二字码',
+  '所属地区（省/州）', '所属城市', '邮政编码', 'SKU', '平台SKU',
+  '平台SKU数量', '商品数量', 'SKU明细', '订单商品名称', '商品中文名称', '商品英文名称',
+]
+
 export default function DataImport({ onImported }) {
   const [dragOver, setDragOver] = useState(false)
   const [parsing, setParsing] = useState(false)
@@ -184,6 +190,11 @@ export default function DataImport({ onImported }) {
           <h3>📥 导入出库数据</h3>
           <p>支持马帮ERP原始文件，自动清洗、填充、聚合、去重、标准化</p>
         </div>
+        <div className="import-template-guide">
+          <strong>推荐马帮导出模板：</strong>
+          <span>{LUCKY_ORDER_TEMPLATE_FIELDS.join('、')}</span>
+          <em>如需看日/周/月趋势，建议额外加「发货时间」或「创建时间」。</em>
+        </div>
         {!preview ? (
           <div className={`dropzone ${dragOver ? 'dropzone-active' : ''}`}
             onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
@@ -265,9 +276,10 @@ export default function DataImport({ onImported }) {
 
             <div className="field-mapping-bar">
               <span className="mapping-chip"><span className="chip-field">订单编号</span> 去重检测</span>
-              <span className="mapping-chip"><span className="chip-field">SKU</span> 自动拆分为明细</span>
-              <span className="mapping-chip"><span className="chip-field">国家</span> 标准化（US→美国）</span>
-              <span className="mapping-chip"><span className="chip-field">发货时间</span> 提取日/星期/月份</span>
+              <span className="mapping-chip"><span className="chip-field">SKU / 平台SKU / SKU明细</span> 写入 SKU 明细</span>
+              <span className="mapping-chip"><span className="chip-field">国家 / 国家二字码</span> 标准化（US→美国）</span>
+              <span className="mapping-chip"><span className="chip-field">省州</span> 国家地区分析</span>
+              <span className="mapping-chip"><span className="chip-field">物流字段</span> 已识别，后续可升级物流看板</span>
             </div>
 
             <div className="preview-table-wrap">
@@ -297,17 +309,8 @@ export default function DataImport({ onImported }) {
 
 /* ========== 马帮处理核心 ========== */
 function processMabang(header, dataRows) {
-  const idx = (name) => header.indexOf(name)
-
-  const orderNoIdx = idx('订单编号')
-  const storeIdx = idx('店铺名')
-  const skuTotalIdx = idx('SKU总数量')
-  const platformSkuQtyIdx = idx('平台SKU数量')
-  const countryIdx = idx('国家')
-  const provinceIdx = idx('所属地区（省/州）')
-  const skuIdx = idx('SKU')
-  const productNameIdx = idx('订单商品名称')
-  const dateIdx = idx('发货时间')
+  const field = buildMabangFieldMap(header)
+  const get = (row, key) => field[key] >= 0 ? row[field[key]] : ''
 
   let lastOrderNo = ''
   let filledDown = 0
@@ -318,32 +321,51 @@ function processMabang(header, dataRows) {
   let badQty = 0
 
   const filled = dataRows.map(row => {
-    const rawNo = row[orderNoIdx]
+    const rawNo = get(row, 'orderNo')
     if (rawNo && rawNo.toString().trim()) lastOrderNo = rawNo.toString().trim()
     else filledDown++
-    const rawCountry = row[countryIdx]
+    const rawCountry = get(row, 'country') || get(row, 'countryCode')
     const normCountry = normalizeCountry(rawCountry)
     if (normCountry !== (rawCountry || '').toString().trim() && rawCountry) normalizedCountries++
-    const rawSku = String(row[skuIdx] || '')
-    const rawItemQty = platformSkuQtyIdx >= 0 ? parseInt(row[platformSkuQtyIdx]) || 0 : 0
-    const rawOrderQty = skuTotalIdx >= 0 ? parseInt(row[skuTotalIdx]) || 0 : 0
+    const rawSku = normalizeSku(get(row, 'sku')) || normalizeSku(get(row, 'platformSku'))
+    const rawItemQty = parseQty(get(row, 'platformSkuQty')) || parseQty(get(row, 'productQty'))
+    const rawOrderQty = parseQty(get(row, 'skuTotal'))
     const rawQty = rawItemQty || rawOrderQty
-    const rawDate = row[dateIdx]
+    const rawDate = get(row, 'shipTime') || get(row, 'paidTime') || get(row, 'createdTime')
+    const productName = pickFirst([
+      get(row, 'orderProductName'),
+      get(row, 'productCnName'),
+      get(row, 'productEnName'),
+      get(row, 'skuDetail'),
+    ])
+    const skuItems = buildSkuItems({
+      sku: rawSku,
+      platformSku: normalizeSku(get(row, 'platformSku')),
+      skuDetail: get(row, 'skuDetail'),
+      productName,
+      quantity: rawQty || 1,
+    })
 
-    if (!rawSku) emptySku++
+    if (!rawSku && skuItems.length === 0) emptySku++
     if (!rawCountry) emptyCountry++
     if (!rawDate) emptyDate++
     if (rawQty <= 0) badQty++
 
     return {
       order_no: lastOrderNo,
-      store_name: String(row[storeIdx] || ''),
+      store_name: String(get(row, 'store') || ''),
       country: normCountry,
-      province: String(row[provinceIdx] || ''),
+      province: String(get(row, 'province') || ''),
+      city: String(get(row, 'city') || ''),
+      postal_code: String(get(row, 'postalCode') || ''),
+      logistics_company: String(get(row, 'logisticsCompany') || ''),
+      logistics_channel: String(get(row, 'logisticsChannel') || ''),
+      tracking_no: String(get(row, 'trackingNo') || ''),
       sku: rawSku,
-      product_name: String(row[productNameIdx] || ''),
+      product_name: String(productName || ''),
       quantity: rawQty || 1,
       rawDate,
+      skuItems,
       product_category: '',
     }
   })
@@ -360,7 +382,12 @@ function processMabang(header, dataRows) {
     }
     const o = orderMap[row.order_no]
     o.totalQty += row.quantity
-    if (row.sku || row.product_name) {
+    if (row.skuItems?.length) {
+      row.skuItems.forEach(item => {
+        o.items.push(item)
+        itemsCount++
+      })
+    } else if (row.sku || row.product_name) {
       o.items.push({ sku: row.sku, product_name: row.product_name, quantity: row.quantity })
       itemsCount++
     }
@@ -393,4 +420,80 @@ function processMabang(header, dataRows) {
     cleanInfo: { rawRows: dataRows.length, mergedOrders: orders.length, filledDown, normalizedCountries, itemsCount },
     qualityIssues: { emptySku, emptyCountry, emptyDate, badQty },
   }
+}
+
+function buildMabangFieldMap(header) {
+  return {
+    orderNo: findHeader(header, ['订单编号', '订单号', '订单id']),
+    store: findHeader(header, ['店铺名', '店铺']),
+    logisticsCompany: findHeader(header, ['物流公司']),
+    logisticsChannel: findHeader(header, ['物流渠道']),
+    trackingNo: findHeader(header, ['货运单号', '运单号', '跟踪号']),
+    country: findHeader(header, ['国家']),
+    countryCode: findHeader(header, ['国家二字码', '国家三字码']),
+    province: findHeader(header, ['所属地区（省/州）', '所属地区(省/州)', '省/州', '州/省']),
+    city: findHeader(header, ['所属城市', '城市']),
+    postalCode: findHeader(header, ['邮政编码', '邮编']),
+    sku: findHeader(header, ['SKU']),
+    platformSku: findHeader(header, ['平台SKU']),
+    platformSkuQty: findHeader(header, ['平台SKU数量']),
+    productQty: findHeader(header, ['商品数量']),
+    skuTotal: findHeader(header, ['SKU总数量']),
+    skuDetail: findHeader(header, ['SKU明细']),
+    orderProductName: findHeader(header, ['订单商品名称']),
+    productCnName: findHeader(header, ['商品中文名称']),
+    productEnName: findHeader(header, ['商品英文名称']),
+    shipTime: findHeader(header, ['发货时间', '配送日期', '配送时间']),
+    paidTime: findHeader(header, ['付款时间']),
+    createdTime: findHeader(header, ['创建时间']),
+  }
+}
+
+function findHeader(header, names) {
+  return header.findIndex(item => {
+    const value = String(item || '').trim().toLowerCase()
+    return names.some(name => value === String(name).trim().toLowerCase())
+  })
+}
+
+function pickFirst(values) {
+  return values.map(value => String(value || '').trim()).find(Boolean) || ''
+}
+
+function parseQty(value) {
+  const parsed = parseInt(String(value || '').replace(/[^\d.-]/g, ''), 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0
+}
+
+function normalizeSku(value) {
+  return String(value || '').trim()
+}
+
+function buildSkuItems({ sku, platformSku, skuDetail, productName, quantity }) {
+  const explicitSku = normalizeSku(sku) || normalizeSku(platformSku)
+  if (explicitSku) return [{ sku: explicitSku, product_name: productName, quantity }]
+
+  return splitSkuDetail(skuDetail).map(item => ({
+    sku: item.sku,
+    product_name: item.productName || productName,
+    quantity: item.quantity || quantity,
+  }))
+}
+
+function splitSkuDetail(value) {
+  const text = String(value || '').trim()
+  if (!text) return []
+  return text
+    .split(/[;；\n\r]+/)
+    .map(part => part.trim())
+    .filter(Boolean)
+    .map(part => {
+      const qtyMatch = part.match(/(?:数量|qty|x|×|[*＊])\s*[:：]?\s*(\d+)/i)
+      const skuMatch = part.match(/(?:SKU|平台SKU)?\s*[:：]?\s*([A-Za-z0-9][A-Za-z0-9._\-\/]{1,})/)
+      return {
+        sku: skuMatch?.[1] || part,
+        productName: part,
+        quantity: qtyMatch ? parseInt(qtyMatch[1], 10) : 0,
+      }
+    })
 }
